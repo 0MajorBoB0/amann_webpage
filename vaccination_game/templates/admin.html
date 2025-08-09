@@ -1,0 +1,35 @@
+
+{% extends "base.html" %}
+{% block content %}
+<h2>Neue Session anlegen</h2>
+<form method="post">
+  <div class="grid grid-3">
+    <div><label>Name</label><input type="text" name="name" value="Session {{ now }}" required></div>
+    <div><label>Gruppengröße (N)</label><input type="number" name="group_size" value="6" min="1" max="20" required></div>
+    <div><label>Runden</label><input type="number" name="rounds" value="20" min="1" max="200" required></div>
+  </div>
+  <div class="grid grid-3">
+    <div><label>cvac</label><input type="number" name="cvac" value="40" step="1" required></div>
+    <div><label>alpha (α)</label><input type="number" name="alpha" value="0.3" step="0.01" required></div>
+    <div><label>cinf</label><input type="number" name="cinf" value="100" step="1" required></div>
+  </div>
+  <div class="grid grid-2">
+    <div><label>Subsidy aktiv?</label><select name="subsidy"><option value="0">Nein</option><option value="1">Ja</option></select></div>
+    <div><label>Subsidy-Betrag</label><input type="number" name="subsidy_amount" value="5" step="1" required></div>
+  </div>
+  <button type="submit">Session erstellen</button>
+</form>
+<hr>
+<h2>Offene Sessions</h2>
+<table class="table">
+  <tr><th>Name</th><th>Codes</th><th>Parameter</th><th>Aktionen</th></tr>
+  {% for s in sessions %}
+    <tr>
+      <td>{{ s['name'] }}<div class="badge">id={{ s['id'] }}</div></td>
+      <td>{% for p in s['participants'] %}<span class="kbd mono">{{ p['code'] }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</td>
+      <td class="mono">N={{ s['group_size'] }}, R={{ s['rounds'] }}, cvac={{ s['cvac'] }}, α={{ s['alpha'] }}, cinf={{ s['cinf'] }}</td>
+      <td><a href="/monitor?session_id={{ s['id'] }}"><button class="secondary">Monitor</button></a> <a href="/export_db"><button class="secondary">DB</button></a></td>
+    </tr>
+  {% endfor %}
+</table>
+{% endblock %}

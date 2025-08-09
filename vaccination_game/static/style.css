@@ -1,0 +1,31 @@
+
+:root{--bg:#0b1020;--card:#111833;--ink:#e8ecff;--muted:#b2b9e6;--accent:#7aa2f7;--ok:#32d583;--warn:#f59f00;--bad:#ef4444}
+*{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system; background:var(--bg); color:var(--ink)}
+.container{max-width:980px;margin:0 auto;padding:24px}
+.card{background:var(--card);border-radius:16px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+h1,h2,h3{margin:0 0 12px} h1{font-size:28px} h2{font-size:22px} h3{font-size:18px}
+label{display:block;margin:8px 0 6px;color:var(--muted)}
+input[type=text],input[type=number],input[type=password],select{width:100%;padding:10px;border-radius:10px;border:1px solid #2b355f;background:#0e1430;color:#e8ecff}
+button{padding:10px 16px;border-radius:12px;border:0;background:var(--accent);color:#07102b;cursor:pointer;font-weight:600}
+button.secondary{background:#213056;color:#cfe0ff} button:disabled{opacity:.5;cursor:not-allowed}
+.grid{display:grid;gap:16px} .grid-2{grid-template-columns:1fr 1fr} .grid-3{grid-template-columns:repeat(3,1fr)}
+.kbd{display:inline-block;border-radius:8px;padding:2px 8px;background:#1b254b;color:#cfe0ff}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#1f2b52;color:#cfe0ff;margin-left:8px}
+.table{width:100%;border-collapse:separate;border-spacing:0 10px} .table th{color:#b8c0ef;text-align:left;font-weight:600;padding:0 10px 6px}
+.table td{background:#0f1734;padding:12px 10px}
+.center{text-align:center} .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono'}
+.notice{background:#0d1a33;border:1px dashed #2b3560;padding:12px;border-radius:12px;color:#cfe0ff}
+.choice{display:flex; gap:12px; align-items:center; background:#0f1734; padding:14px; border-radius:12px; margin:10px 0}
+.choice input{transform:scale(1.2)} .big{font-size:20px} hr{border:none;border-top:1px solid #273061;margin:20px 0}
+footer{margin-top:24px;color:#8ea0e0;font-size:12px} ul{margin-top:6px} a{color:#a1c4ff}
+
+/* Floating Chat */
+#chat-fab{position:fixed;right:18px;bottom:18px;border-radius:999px;padding:10px 14px;background:var(--accent);color:#07102b;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.35);z-index:9998;display:none}
+#chat-panel{position:fixed;right:18px;bottom:70px;width:340px;max-height:60vh;background:#0f1734;border:1px solid #2b3560;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.4);z-index:9999;display:none;overflow:hidden}
+#chat-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#0d1633;border-bottom:1px solid #253060}
+#chat-title{font-weight:700} #chat-close{background:transparent;color:#cfe0ff;border:0;cursor:pointer;font-size:18px}
+#chat-msgs{height:300px;overflow-y:auto;padding:8px 10px}
+.msg{margin:6px 0}.msg .meta{font-size:12px;color:#9bb0ff}.msg .text{font-size:14px}
+#chat-input{display:flex;gap:8px;padding:10px} #chat-input input{flex:1;padding:10px;border-radius:10px;border:1px solid #2b355f;background:#0e1430;color:#e8ecff}
+#chat-input button{padding:8px 12px;border-radius:10px}
+.unread{position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:999px;font-size:11px;padding:2px 6px}

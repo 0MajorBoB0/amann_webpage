@@ -1,0 +1,35 @@
+
+{% extends "base.html" %}
+{% block content %}
+<p>Runde <strong>{{ round_number }}</strong> von {{ session['rounds'] }}</p>
+<div class="grid grid-2">
+  <div>
+    <h3>Option A</h3>
+    <div class="choice">
+      <input type="radio" name="choice" value="A" id="A">
+      <label for="A"><span class="big">Fixe Kosten:</span> {{ a_cost_preview }} ECU</label>
+    </div>
+  </div>
+  <div>
+    <h3>Option B</h3>
+    <div class="choice">
+      <input type="radio" name="choice" value="B" id="B">
+      <label for="B"><span class="big">Variable Kosten:</span> 0–{{ b_cost_max|round(0) }} ECU</label>
+    </div>
+  </div>
+</div>
+<button id="submit" disabled>Entscheidung abgeben</button>
+{% endblock %}
+{% block scripts %}
+<script>
+const radios = document.querySelectorAll('input[name="choice"]');
+const btn = document.getElementById('submit');
+radios.forEach(r => r.addEventListener('change', () => btn.disabled = false));
+btn.addEventListener('click', async () => {
+  const val = [...radios].find(r => r.checked).value;
+  btn.disabled = true;
+  const r = await fetch("/choose", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ choice: val }) });
+  if (r.ok) window.location.href = "/wait"; else { btn.disabled=false; alert("Fehler beim Senden."); }
+});
+</script>
+{% endblock %}

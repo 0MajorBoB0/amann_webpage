@@ -1,0 +1,18 @@
+
+{% extends "base.html" %}
+{% block content %}
+<p>Danke! Warte, bis alle entschieden haben …</p>
+<p class="mono">Runde {{ round_number }} / {{ session['rounds'] }}</p>
+<div class="notice" id="status">Eingänge: {{ decided }}/{{ session['group_size'] }}</div>
+<div class="notice" id="list">Entschieden: –</div>
+{% endblock %}
+{% block scripts %}
+<script>
+setInterval(async ()=>{
+  const r = await fetch("/round_status?session_id={{ session['id'] }}&round={{ round_number }}"); const d = await r.json();
+  document.getElementById('status').textContent = "Eingänge: " + d.decided + "/{{ session['group_size'] }}";
+  document.getElementById('list').innerHTML = "Entschieden: " + (d.decided_codes.length ? d.decided_codes.map(c => `<span class='kbd mono'>${c}</span>`).join(' ') : "–");
+  if (d.ready) window.location.href = "/feedback";
+}, 1000);
+</script>
+{% endblock %}
