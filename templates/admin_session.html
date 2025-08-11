@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+  <h2>Session-Details</h2>
+  <a href="/admin"><button class="secondary">← Zurück</button></a>
+</div>
+
+<p class="mono">
+  {{ session['name'] }} — id={{ session['id'] }}
+  <span class="badge">N={{ session['group_size'] }}</span>
+  <span class="badge">R={{ session['rounds'] }}</span>
+  <span class="badge">reveal={{ session['reveal_window'] }}s</span>
+  <span class="badge">watch={{ session['watch_time'] }}s</span>
+  {% if session['archived'] %}<span class="badge" style="background:#1b3a2a">archiviert</span>{% endif %}
+</p>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3>Teilnehmer (Runde <span id="rnow">{{ round_number }}</span>)</h3>
+    <div class="notice" id="decInfo">Entschieden: <span id="dec">0</span>/<span id="tot">0</span></div>
+    <table class="table" style="margin-top:8px">
+      <thead>
+        <tr><th>Code</th><th>Alias</th><th>Kontostand</th><th>Round</th><th>Status</th><th>Wahl</th></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Chat</h3>
+    <div id="chat" class="notice" style="height:300px; overflow:auto"></div>
+    <div style="margin-top:10px;">
+      <a href="/admin/export_session_xlsx?session_id={{ session['id'] }}">
+        <button>Export</button>
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const sid = "{{ session['id'] }}";
+const tbody = document.getElementById('tbody');
+const chatBox = document.getElementById('chat');
+
+async function pollStatus(){
+  try{
+    const r = await fetch(`/admin/session_status?session_id=${sid}`);
+    const d = await r.json();
+    document.getElementById('rnow').textContent = d.session.current_round;
+    document.getElementById('dec').textContent = d.decided_count;
+    document.getElementById('tot').textContent = d.participants.length;
+    tbody.innerHTML = "";
+    d.participants.forEach(p=>{
+      const tr = document.createElement('tr');
+      const dot = p.decided ? "<span class='badge' style='background:#1b3a2a'>✔</span>" : "<span class='badge'>…</span>";
+      tr.innerHTML = `
+        <td class="mono">${p.code}</td>
+        <td>${p.alias || "—"}</td>
+        <td class="mono">${(p.balance ?? 0).toFixed(2)}</td>
+        <td class="mono">${p.current_round}</td>
+        <td>${dot}</td>
+        <td class="mono">${p.choice || "-"}</td>`;
+      tbody.appendChild(tr);
+    });
+  }catch(e){}
+}
+
+async function pollChat(){
+  try{
+    const r = await fetch(`/admin/session_chat?session_id=${sid}`);
+    const msgs = await r.json();
+    chatBox.innerHTML = msgs.map(m => `<div><span class="mono" style="opacity:.7">${m.ts}</span> <strong>${m.alias}</strong>: ${m.text}</div>`).join("");
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }catch(e){}
+}
+
+setInterval(pollStatus, 1000); pollStatus();
+setInterval(pollChat, 1500); pollChat();
+</script>
+{% endblock %}

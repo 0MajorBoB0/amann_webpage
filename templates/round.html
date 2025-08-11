@@ -1,7 +1,7 @@
-
 {% extends "base.html" %}
 {% block content %}
 <p>Runde <strong>{{ round_number }}</strong> von {{ session['rounds'] }}</p>
+
 <div class="grid grid-2">
   <div>
     <h3>Option A</h3>
@@ -18,18 +18,37 @@
     </div>
   </div>
 </div>
+
 <button id="submit" disabled>Entscheidung abgeben</button>
+
+<hr>
+<h3>Live-Status</h3>
+<div class="notice" id="status">Eingänge: 0/{{ session['group_size'] }}</div>
+<div class="notice" id="list">Entschieden: –</div>
 {% endblock %}
+
 {% block scripts %}
 <script>
 const radios = document.querySelectorAll('input[name="choice"]');
 const btn = document.getElementById('submit');
 radios.forEach(r => r.addEventListener('change', () => btn.disabled = false));
 btn.addEventListener('click', async () => {
-  const val = [...radios].find(r => r.checked).value;
+  const sel = [...radios].find(r => r.checked);
+  if (!sel) return;
   btn.disabled = true;
-  const r = await fetch("/choose", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ choice: val }) });
+  const r = await fetch("/choose", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ choice: sel.value }) });
   if (r.ok) window.location.href = "/wait"; else { btn.disabled=false; alert("Fehler beim Senden."); }
 });
+
+// Live-Anzeige wer schon abgegeben hat
+async function tick(){
+  try{
+    const r = await fetch("/round_status?session_id={{ session['id'] }}&round={{ round_number }}");
+    const d = await r.json();
+    document.getElementById('status').textContent = "Eingänge: " + d.decided + "/{{ session['group_size'] }}";
+    document.getElementById('list').innerHTML = "Entschieden: " + (d.decided_codes.length ? d.decided_codes.map(c => `<span class='kbd mono'>${c}</span>`).join(' ') : "–");
+  }catch(e){}
+}
+setInterval(tick, 1000); tick();
 </script>
 {% endblock %}

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Ergebnis Runde {{ round_number }}</h2>
+<p>Kontostand: <strong>{{ balance|round(2) }} ECU</strong></p>
+{% if next_round %}
+  <a href="/round"><button>Weiter</button></a>
+{% else %}
+  <!-- Am Ende: NICHTS mehr mit Quiz. Nur Abschließen -> /done -->
+  <a href="/done"><button>Abschließen</button></a>
+{% endif %}
+{% endblock %}
+

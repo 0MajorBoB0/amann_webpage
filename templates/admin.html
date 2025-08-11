@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Neue Session anlegen</h2>
+<form method="post">
+  <div class="grid grid-3">
+    <div><label>Name</label><input type="text" name="name" value="Session {{ now }}" required></div>
+    <div><label>Gruppengröße (N)</label><input type="number" name="group_size" value="6" min="1" max="20" required></div>
+    <div><label>Runden</label><input type="number" name="rounds" value="20" min="1" max="200" required></div>
+  </div>
+  <div class="grid grid-3">
+    <div><label>cvac</label><input type="number" name="cvac" value="40" step="1" required></div>
+    <div><label>alpha (α)</label><input type="number" name="alpha" value="0.3" step="0.01" required></div>
+    <div><label>cinf</label><input type="number" name="cinf" value="100" step="1" required></div>
+  </div>
+  <div class="grid grid-3">
+    <div><label>Subsidy aktiv?</label>
+      <select name="subsidy"><option value="0">Nein</option><option value="1">Ja</option></select></div>
+    <div><label>Subsidy-Betrag</label><input type="number" name="subsidy_amount" value="5" step="1" required></div>
+    <div></div>
+  </div>
+  <div class="grid grid-2">
+    <div><label>Reveal-Fenster (Sek.)</label><input type="number" name="reveal_window" value="5" step="1" min="0" required></div>
+    <div><label>Watch-Time (Sek.)</label><input type="number" name="watch_time" value="15" step="1" min="0" required></div>
+  </div>
+  <button type="submit">Session erstellen</button>
+</form>
+
+<hr>
+
+<h2>Offene Sessions</h2>
+<table class="table">
+  <tr><th>Name</th><th>Codes</th><th>Parameter</th><th>Aktionen</th></tr>
+  {% for s in sessions_active %}
+    <tr>
+      <td>
+        {{ s['name'] }}
+        <div class="badge mono">id={{ s['id'] }}</div>
+      </td>
+      <td>
+        {% for p in s['participants'] %}
+          <span class="kbd mono">{{ p['code'] }}</span>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </td>
+      <td class="mono">
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, cvac={{ '%.1f'|format(s['cvac']) }}, α={{ '%.1f'|format(s['alpha']) }}, cinf={{ '%.1f'|format(s['cinf']) }},
+        reveal={{ s['reveal_window'] }}s, watch={{ s['watch_time'] }}s
+      </td>
+      <td>
+        <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
+
+        <form method="post" action="/admin/reset_session" style="display:inline"
+              onsubmit="return confirm('Session wirklich RESETTEN? Entscheidungen & Chat werden gelöscht, Spieler starten in Runde 1.');">
+          <input type="hidden" name="session_id" value="{{ s['id'] }}">
+          <button class="secondary">Reset</button>
+        </form>
+
+        <form method="post" action="/admin/archive_session" style="display:inline"
+              onsubmit="return confirm('Session ARCHIVIEREN und beenden? Alle Daten ins Archiv kopieren.');">
+          <input type="hidden" name="session_id" value="{{ s['id'] }}">
+          <button class="secondary">Archivieren</button>
+        </form>
+
+        <form method="post" action="/admin/delete_session" style="display:inline"
+              onsubmit="return confirm('Session LÖSCHEN? Nicht rückgängig! Alle Daten werden entfernt.');">
+          <input type="hidden" name="session_id" value="{{ s['id'] }}">
+          <button style="background:#ef4444;color:white;border-radius:12px;padding:10px 16px;border:0">Löschen</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="center" style="opacity:.7">– keine offenen Sessions –</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Abgeschlossene Sessions</h2>
+<table class="table">
+  <tr><th>Name</th><th>Codes</th><th>Parameter</th><th>Aktionen</th></tr>
+  {% for s in sessions_done %}
+    <tr>
+      <td>
+        {{ s['name'] }}
+        <div class="badge mono">id={{ s['id'] }}</div>
+      </td>
+      <td>
+        {% for p in s['participants'] %}
+          <span class="kbd mono">{{ p['code'] }}</span>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </td>
+      <td class="mono">
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, cvac={{ '%.1f'|format(s['cvac']) }}, α={{ '%.1f'|format(s['alpha']) }}, cinf={{ '%.1f'|format(s['cinf']) }},
+        reveal={{ s['reveal_window'] }}s, watch={{ s['watch_time'] }}s
+      </td>
+      <td>
+        <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
+        <form method="post" action="/admin/archive_session" style="display:inline"
+              onsubmit="return confirm('Session ARCHIVIEREN und beenden? Alle Daten ins Archiv kopieren.');">
+          <input type="hidden" name="session_id" value="{{ s['id'] }}">
+          <button class="secondary">Archivieren</button>
+        </form>
+        <form method="post" action="/admin/delete_session" style="display:inline"
+              onsubmit="return confirm('Session LÖSCHEN? Nicht rückgängig! Alle Daten werden entfernt.');">
+          <input type="hidden" name="session_id" value="{{ s['id'] }}">
+          <button style="background:#ef4444;color:white;border-radius:12px;padding:10px 16px;border:0">Löschen</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="center" style="opacity:.7">– keine abgeschlossenen Sessions –</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Archivierte Sessions</h2>
+<table class="table">
+  <tr><th>Name</th><th>Codes</th><th>Parameter</th><th>Aktionen</th></tr>
+  {% for s in sessions_arch %}
+    <tr>
+      <td>
+        {{ s['name'] }}
+        <div class="badge mono">id={{ s['id'] }}</div>
+        <div class="badge" style="background:#1b3a2a">archiviert</div>
+      </td>
+      <td>
+        {% for p in s['participants'] %}
+          <span class="kbd mono">{{ p['code'] }}</span>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </td>
+      <td class="mono">
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, cvac={{ '%.1f'|format(s['cvac']) }}, α={{ '%.1f'|format(s['alpha']) }}, cinf={{ '%.1f'|format(s['cinf']) }},
+        reveal={{ s['reveal_window'] }}s, watch={{ s['watch_time'] }}s
+      </td>
+      <td>
+        <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
+        <!-- Archiv bleibt, nur Löschen anbieten -->
+        <form method="post" action="/admin/delete_session" style="display:inline"
+              onsubmit="return confirm('Archivierte Session LÖSCHEN? Nicht rückgängig!');">
+          <input type="hidden" name="session_id" value="{{ s['id'] }}">
+          <button style="background:#ef4444;color:white;border-radius:12px;padding:10px 16px;border:0">Löschen</button>
+        </form>
+      </td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="center" style="opacity:.7">– keine archivierten Sessions –</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}
+

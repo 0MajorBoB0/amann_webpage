@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Runde {{ round_number }} – Reveal</h2>
+
+<div class="notice" id="phaseTitle">Entscheidungsphase: Wähle, ob deine Antwort gezeigt wird …</div>
+<div class="notice" id="timerText">–</div>
+<hr>
+
+<div id="players" class="grid grid-3"></div>
+
+<div id="myChoice" class="notice" style="margin-top:16px; display:none"></div>
+
+<div id="revealControls" style="margin-top:12px;">
+  <button id="btnShow">Antwort zeigen</button>
+  <button id="btnHide" class="secondary">Antwort geheim halten</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async function () {
+  // session_id holen
+  let meInfo = null;
+  try {
+    const r = await fetch("/me");
+    if (r.ok) meInfo = await r.json();
+  } catch (e) {}
+  const sid   = meInfo ? meInfo.session_id : "{{ session['id'] }}";
+  const round = {{ round_number }};
+
+  const title   = document.getElementById("phaseTitle");
+  const ttxt    = document.getElementById("timerText");
+  const wrap    = document.getElementById("players");
+  const myBox   = document.getElementById("myChoice");
+  const ctrls   = document.getElementById("revealControls");
+  const btnShow = document.getElementById("btnShow");
+  const btnHide = document.getElementById("btnHide");
+
+  let myReveal = null;          // 1=zeigen, 0=geheim, null=offen
+  let phase    = "decision";    // "decision" | "watch" | "done"
+  let endsAt   = null;          // ISO UTC vom Server
+  let forcedDefaultSent = false;
+
+  // ISO mit optionalem 'Z' robust parsen
+  function parseISO(s){ return new Date((s||"").endsWith("Z") ? s : (s+"Z")); }
+  function secsLeft(targetIso){
+    if(!targetIso) return 0;
+    const end = parseISO(targetIso).getTime();
+    const now = Date.now();
+    return Math.max(0, Math.ceil((end - now)/1000));
+  }
+
+  function setPhaseText() {
+    if (phase === "decision") {
+      title.textContent = "Entscheidungsphase: Wähle, ob deine Antwort gezeigt wird …";
+    } else if (phase === "watch") {
+      title.textContent = "Watchtime: Antworten werden angezeigt …";
+    } else {
+      title.textContent = "Weiter …";
+    }
+  }
+
+  function renderPlayers(list) {
+    wrap.innerHTML = "";
+    list.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.style.padding = "12px";
+      const name = p.alias || p.code;
+      const text = (phase === "decision")
+        ? (p.reveal === 1 ? "zeigt" : (p.reveal === 0 ? "geheim" : "—"))
+        : (p.reveal === 1 ? ("Wahl: " + (p.choice || "–")) : "Wahl: geheim");
+      card.innerHTML = `
+        <div style="font-weight:700">${name}</div>
+        <div style="margin-top:8px;color:#cfe0ff">${text}</div>`;
+      wrap.appendChild(card);
+    });
+  }
+
+  async function sendReveal(val){
+    try{
+      await fetch("/reveal_choose", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ reveal: val })
+      });
+      myReveal = val;
+      ctrls.style.display = "none";
+      myBox.style.display = "block";
+      myBox.textContent = (val===1) ? "Deine Wahl: zeigen" : "Deine Wahl: geheim";
+    }catch(e){}
+  }
+  btnShow.addEventListener("click", ()=>sendReveal(1));
+  btnHide.addEventListener("click", ()=>sendReveal(0));
+
+  async function tick(){
+    let d;
+    try{
+      const r = await fetch(`/reveal_status?session_id=${encodeURIComponent(sid)}&round=${round}`);
+      if(!r.ok){ setTimeout(tick, 800); return; }
+      d = await r.json();
+    }catch(e){ setTimeout(tick, 800); return; }
+
+    phase  = d.phase;
+    endsAt = d.ends_at;
+    setPhaseText();
+    ttxt.textContent = secsLeft(endsAt) + "s";
+
+    // Eigene Wahl-UI
+    if (d.me) {
+      if (d.me.reveal === 0 || d.me.reveal === 1) {
+        myReveal = d.me.reveal;
+        ctrls.style.display = "none";
+        myBox.style.display = "block";
+        myBox.textContent = (myReveal===1) ? "Deine Wahl: zeigen" : "Deine Wahl: geheim";
+      } else {
+        if (phase === "decision") {
+          ctrls.style.display = "block";
+          myBox.style.display = "none";
+        } else {
+          ctrls.style.display = "none";
+        }
+      }
+    }
+
+    // Buttons während Watchtime deaktivieren
+    const disabled = (phase !== "decision");
+    btnShow.disabled = disabled;
+    btnHide.disabled = disabled;
+
+    // Tisch rendern
+    renderPlayers(d.players || []);
+
+    // Ende der Entscheidungsphase → Fallback geheim, falls nichts gewählt
+    if (phase === "watch" && myReveal === null && !forcedDefaultSent) {
+      forcedDefaultSent = true;
+      sendReveal(0);
+    }
+
+    // Fertig → Feedback
+    if (phase === "done") {
+      window.location.href = "/feedback";
+      return;
+    }
+
+    setTimeout(tick, 800);
+  }
+
+  tick();
+})();
+</script>
+{% endblock %}
