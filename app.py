@@ -17,6 +17,7 @@ app = Flask(
 )
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+# CORS offen für Demo/Tunnel – produktiv enger setzen
 socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 
 
@@ -212,7 +213,7 @@ def lobby():
     joined = con.execute(
         "SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1", (s["id"],)
     ).fetchone()["c"]
-    return render_template("lobby.html", session=s, participant=g.participant, joined=joined)
+    return render_template("lobby.html", session=s, participant=g.participant, joined=joined, chat_open=True)
 
 @app.route("/lobby_status")
 def lobby_status():
@@ -243,7 +244,9 @@ def round_view():
         return redirect(url_for("done"))
     a_cost_preview = max(p["theta"] * (s["cvac"] - (s["subsidy_amount"] if s["subsidy"] else 0)), 0)
     b_cost_max = p["lambda"] * s["alpha"] * 1.0 * s["cinf"]
-    return render_template("round.html", session=s, round_number=r, a_cost_preview=round(a_cost_preview, 2), b_cost_max=b_cost_max)
+    return render_template("round.html", session=s, round_number=r,
+                           a_cost_preview=round(a_cost_preview, 2),
+                           b_cost_max=b_cost_max, chat_open=False)
 
 @app.route("/choose", methods=["POST"])
 def choose():
@@ -281,7 +284,7 @@ def wait_view():
     decided = con.execute(
         "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?", (s["id"], r)
     ).fetchone()["c"]
-    return render_template("wait.html", session=s, round_number=r, decided=decided)
+    return render_template("wait.html", session=s, round_number=r, decided=decided, chat_open=False)
 
 @app.route("/round_status")
 def round_status():
@@ -379,7 +382,8 @@ def reveal():
     r = p["current_round"] - 1
     if r < 1:
         return redirect(url_for("round_view"))
-    return render_template("reveal.html", session=s, round_number=r)
+    # wenn du den Chat auf dieser Seite offen haben willst:
+    return render_template("reveal.html", session=s, round_number=r, chat_open=False)
 
 @app.post("/reveal_choose")
 def reveal_choose():
@@ -488,7 +492,8 @@ def feedback():
         return redirect(url_for("round_view"))
     balance = p["balance"]
     next_round = (not s["archived"]) and (p["current_round"] <= s["rounds"])
-    return render_template("feedback.html", session=s, round_number=r, balance=balance, next_round=next_round)
+    return render_template("feedback.html", session=s, round_number=r,
+                           balance=balance, next_round=next_round, chat_open=False)
 
 @app.route("/quiz", methods=["GET", "POST"])
 def quiz():
@@ -522,6 +527,11 @@ def done():
     flask_session.pop("participant_id", None)
     return render_template("done.html", balance=balance, code=code)
 
+# ---- Healthcheck für Tunnel/Monitoring ----
+@app.get("/healthz")
+def healthz():
+    return "ok", 200
+
 
 # -------------------- Admin auth --------------------
 @app.route("/admin_login", methods=["GET", "POST"])
@@ -530,8 +540,9 @@ def admin_login():
         if request.form.get("password") == ADMIN_PASSWORD:
             flask_session["admin_ok"] = True
             return redirect(url_for("admin"))
-        return render_template("admin_login.html", error="Falsches Passwort.")
-    return render_template("admin_login.html", error=None)
+        return render_template("admin_login.html", error="Falsches Passwort.", admin_tab_guard=True)
+    return render_template("admin_login.html", error=None, admin_tab_guard=True)
+
 
 def require_admin():
     return bool(flask_session.get("admin_ok"))
@@ -680,12 +691,15 @@ def admin_delete_session():
 
 @app.get("/admin/session/<session_id>")
 def admin_session_view(session_id):
-    if not require_admin(): return redirect(url_for("admin_login"))
+    if not require_admin():
+        return redirect(url_for("admin_login"))
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
-    if not s: return redirect(url_for("admin"))
+    if not s:
+        return redirect(url_for("admin"))
     r = con.execute("SELECT MIN(current_round) AS r FROM participants WHERE session_id=?", (session_id,)).fetchone()["r"] or 1
-    return render_template("admin_session.html", session=s, round_number=r)
+    return render_template("admin_session.html", session=s, round_number=r, admin_tab_guard=True)
+
 
 @app.get("/admin/session_status")
 def admin_session_status():
@@ -764,6 +778,13 @@ def export_session_xlsx():
     fname = f"{safe_name}__{s['id'][:8]}__export.xlsx"
     return send_file(bio, as_attachment=True, download_name=fname, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+@app.post("/admin_tab_open")
+def admin_tab_open():
+    return ("", 204)
+
+@app.post("/admin_tab_close")
+def admin_tab_close():
+    return ("", 204)
 
 # -------------------- Sockets (Chat) --------------------
 @socketio.on("join_room")
@@ -820,4 +841,4 @@ def on_send_message(data):
 # -------------------- Run --------------------
 if __name__ == "__main__":
     init_db()
-    socketio.run(app, host="127.0.0.1", port=5000, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
