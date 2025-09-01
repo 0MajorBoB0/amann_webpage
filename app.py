@@ -6,6 +6,8 @@ from flask import (
     url_for, jsonify, g, send_file
 )
 from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(APP_DIR, "game.db")
@@ -86,6 +88,7 @@ def iso_utc(dt: datetime.datetime) -> str:
 
 def parse_iso_utc(s: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat((s or "").replace("Z", "+00:00"))
+
 
 def init_db():
     con = db()
@@ -342,14 +345,13 @@ def choose():
     s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
     r = p["current_round"]
     already = con.execute("SELECT 1 FROM decisions WHERE participant_id=? AND round_number=?", (p["id"], r)).fetchone()
-    if already:  # client leitet trotzdem zur Warteseite
+    if already:
         return jsonify({"ok": True})
     con.execute(
         "INSERT INTO decisions (session_id, participant_id, round_number, choice, created_at) VALUES (?,?,?,?,?)",
-        (s["id"], p["id"], r, choice, utc_now().isoformat()),
+        (s["id"], p["id"], r, choice, iso_utc(utc_now())),
     )
     con.commit()
-    # WICHTIG: JSON-Antwort; Client navigiert unmittelbar zu /wait
     return jsonify({"ok": True})
 
 @app.route("/wait")
@@ -531,10 +533,12 @@ def feedback():
     p = g.participant
     s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
     r = p["current_round"] - 1
-    if r < 1: return redirect(url_for("round_view"))
+    if r < 1:
+        return redirect(url_for("round_view"))
 
     d = con.execute(
-        "SELECT choice, total_cost, payout, base_payout, b_cost_round, others_A FROM decisions WHERE session_id=? AND participant_id=? AND round_number=?",
+        "SELECT choice, total_cost, payout, base_payout, b_cost_round, others_A "
+        "FROM decisions WHERE session_id=? AND participant_id=? AND round_number=?",
         (s["id"], p["id"], r),
     ).fetchone()
 
@@ -559,7 +563,7 @@ def feedback():
         others_A=(d["others_A"] if d else None),
         decided_A=decided_A,
         decided_B=decided_B,
-        next_round = (not s["archived"]) and (p["current_round"] <= s["rounds"]),
+        next_round=(not s["archived"]) and (p["current_round"] <= s["rounds"]),
     )
     return render_template("feedback.html", **ctx)
 
@@ -647,7 +651,7 @@ def admin():
     rows = con.execute("SELECT * FROM sessions ORDER BY created_at DESC").fetchall()
     sessions_active, sessions_done, sessions_arch = [], [], []
     for s in rows:
-        ps = con.execute("SELECT code FROM participants WHERE session_id=? ORDER BY code", (s["id"],)).fetchall()
+        ps = con.execute("SELECT code FROM participants WHERE session_id=?", (s["id"],)).fetchall()
         sdict = {**dict(s), "participants": [dict(p) for p in ps]}
         if s["archived"]:
             sessions_arch.append(sdict)
@@ -737,6 +741,40 @@ def admin_delete_session():
     return redirect(url_for("admin"))
 
 # --------- XLSX Export ----------
+def _style_table(ws, header_row=1, wrap_cols=None, int_cols=None):
+    """Apply tidy styling to a worksheet: header style, freeze, filter, number formats, wrapping, autosize."""
+    hdr_fill = PatternFill("solid", fgColor="1F2A44")
+    hdr_font = Font(bold=True, color="FFFFFF")
+    for cell in ws[header_row]:
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+        cell.alignment = Alignment(vertical="center")
+
+    ws.freeze_panes = f"A{header_row+1}"
+    ws.auto_filter.ref = ws.dimensions
+
+    if int_cols:
+        for col_idx in int_cols:
+            col_letter = get_column_letter(col_idx)
+            for r in range(header_row+1, ws.max_row+1):
+                ws[f"{col_letter}{r}"].number_format = "0"
+
+    if wrap_cols:
+        for col_idx in wrap_cols:
+            col_letter = get_column_letter(col_idx)
+            for r in range(header_row, ws.max_row+1):
+                ws[f"{col_letter}{r}"].alignment = Alignment(wrap_text=True, vertical="top")
+
+    max_width = {}
+    for row in ws.iter_rows(values_only=False):
+        for cell in row:
+            length = len(str(cell.value)) if cell.value is not None else 0
+            max_width[cell.column] = max(max_width.get(cell.column, 0), length)
+
+    for col, width in max_width.items():
+        col_letter = get_column_letter(col)
+        ws.column_dimensions[col_letter].width = min(60, max(10, width * 1.15))
+
 @app.get("/admin/export_session_xlsx")
 def admin_export_session_xlsx():
     if not require_admin(): return redirect(url_for("admin_login"))
@@ -746,17 +784,31 @@ def admin_export_session_xlsx():
     if not s: return ("Not found", 404)
 
     wb = Workbook()
+
+    # Session (kompakte Parameter)
     ws0 = wb.active; ws0.title = "Session"
     ws0.append(["id","name","group_size","rounds","starting_balance","watch_time","created_at","archived"])
-    ws0.append([s["id"], s["name"], s["group_size"], s["rounds"], s["starting_balance"], s["watch_time"], s["created_at"], s["archived"]])
+    ws0.append([
+        s["id"], s["name"], s["group_size"], s["rounds"],
+        s["starting_balance"], s["watch_time"], s["created_at"], s["archived"]
+    ])
+    _style_table(ws0, header_row=1, wrap_cols=[7,8], int_cols=[3,4,5,6])
 
+    # Participants
     ws1 = wb.create_sheet("Participants")
     ws1.append(["player_no","code","ptype","joined","current_round","balance","completed","created_at"])
-    for p in con.execute("SELECT join_number, code, ptype, joined, current_round, balance, completed, created_at FROM participants WHERE session_id=? ORDER BY join_number, code", (sid,)):
-        ws1.append([p["join_number"], p["code"], p["ptype"], p["joined"], p["current_round"], p["balance"], p["completed"], p["created_at"]])
+    for p in con.execute(
+        "SELECT join_number, code, ptype, joined, current_round, balance, completed, created_at "
+        "FROM participants WHERE session_id=? ORDER BY join_number, code", (sid,)
+    ):
+        ws1.append([p["join_number"], p["code"], p["ptype"], p["joined"],
+                    p["current_round"], p["balance"], p["completed"], p["created_at"]])
+    _style_table(ws1, header_row=1, wrap_cols=[8], int_cols=[1,3,4,5,6,7])
 
+    # Decisions (inkl. others_A / b_cost_round / base_payout)
     ws2 = wb.create_sheet("Decisions")
-    ws2.append(["round","player_no","code","ptype","choice","a_cost","b_cost","total_cost","payout","created_at","revealed","others_A","b_cost_round","base_payout"])
+    ws2.append(["round","player_no","code","ptype","choice","a_cost","b_cost","total_cost",
+                "payout","created_at","revealed","others_A","b_cost_round","base_payout"])
     for d in con.execute("""
         SELECT d.round_number, p.join_number, p.code, p.ptype, d.choice,
                d.a_cost, d.b_cost, d.total_cost, d.payout, d.created_at, d.reveal,
@@ -767,7 +819,12 @@ def admin_export_session_xlsx():
         ws2.append([d["round_number"], d["join_number"], d["code"], d["ptype"], d["choice"],
                     d["a_cost"], d["b_cost"], d["total_cost"], d["payout"], d["created_at"], d["reveal"],
                     d["others_A"], d["b_cost_round"], d["base_payout"]])
+    _style_table(
+        ws2, header_row=1, wrap_cols=[10],  # created_at
+        int_cols=[1,2,4,6,7,8,9,11,12,13,14]
+    )
 
+    # Design (kompakt & lesbar)
     ws3 = wb.create_sheet("Design")
     ws3.append(["Parameter","Wert","Kommentar"])
     for k,v,c in [
@@ -781,21 +838,27 @@ def admin_export_session_xlsx():
         ("Archiviert", s["archived"], "1 = archiviert"),
     ]:
         ws3.append([k,v,c])
+    _style_table(ws3, header_row=1, wrap_cols=[2,3])
 
+    # TypeCostTable (Originale Chef-Tabelle – relevant für Replikation)
     ws4 = wb.create_sheet("TypeCostTable")
     ws4.append(["Typ","A_cost","B_cost_1A","B_cost_2A","B_cost_3A","B_cost_4A","B_cost_5A"])
     for t in sorted(TYPE_COST.keys()):
         ws4.append([t, TYPE_COST[t]["A"], *TYPE_COST[t]["B"][:5]])
+    _style_table(ws4, header_row=1, int_cols=[1,2,3,4,5,6,7])
 
+    # RoundSettings (pro Runde die verwendeten Parameter)
     ws5 = wb.create_sheet("RoundSettings")
     ws5.append(["round","M","N","watch_time"])
     for rr in range(1, int(s["rounds"]) + 1):
         ws5.append([rr, s["starting_balance"], s["group_size"], s["watch_time"]])
+    _style_table(ws5, header_row=1, int_cols=[1,2,3,4])
 
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
     filename = f"session_{s['name'].replace(' ', '_')}_{s['id'][:8]}.xlsx"
-    return send_file(buf,
+    return send_file(
+        buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=filename

@@ -1,45 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Vaccination Game – Session-Details{% endblock %}
+{% block title %}Vaccination Game – Session{% endblock %}
 
 {% block content %}
 <div class="page">
 
-  <header class="pagehead">
-    <div class="actions">
-      <a class="btn btn-secondary" href="{{ url_for('admin') }}">← Zurück</a>
-      <a class="btn btn-primary" href="{{ url_for('admin_export_session_xlsx', session_id=session.id) }}">Export (.xlsx)</a>
+  <div class="toolbar" style="display:flex;gap:.75rem;align-items:center; margin-bottom:1rem;">
+    <a class="btn" href="{{ url_for('admin') }}">← Zurück</a>
+    <a class="btn btn-primary" href="{{ url_for('admin_export_session_xlsx') }}?session_id={{ session.id }}">⬇ Download (.xlsx)</a>
+    <div class="muted" style="margin-left:auto;">
+      N={{ session.group_size }}, R={{ session.rounds }}, M={{ session.starting_balance }}, watch={{ session.watch_time }}s
     </div>
-  </header>
+  </div>
 
   <section class="card">
-    <h3>Session-Details</h3>
-
-    <div class="meta">
-      <div class="metabox">
-        <div class="label">Name:</div>
-        <div class="value">{{ session.name }}</div>
-        <div class="sub">id={{ session.id }}</div>
-      </div>
-
-      <div class="chips">
-        <span class="chip">N={{ session.group_size }}</span>
-        <span class="chip">R={{ session.rounds }}</span>
-        <span class="chip">M={{ session.starting_balance|int }}</span>
-        <span class="chip">watch={{ session.watch_time|int }}s</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="card">
-    <div class="listhead">
-      <div>
-        <strong>Live-Status</strong>
-      </div>
-      <div id="round_info">Runde: {{ round_number }} • Entschieden: <span id="decided_count">0</span>/<span id="need">{{ session.group_size }}</span></div>
+    <h3>Live-Status</h3>
+    <div class="muted tiny">Runde: <span id="round_disp">{{ round_number }}</span> •
+      Entschieden: <span id="decided_count">0</span>/<span id="group_size">{{ session.group_size }}</span>
     </div>
 
-    <div class="tablewrap">
-      <table class="tbl" id="ptable" aria-label="Teilnehmerstatus">
+    <div class="table-wrap" style="margin-top:.75rem;">
+      <table class="table">
         <thead>
           <tr>
             <th>#</th>
@@ -50,56 +30,44 @@
             <th>Letzte Auszahlung (Runde)</th>
           </tr>
         </thead>
-        <tbody>
-          <!-- gefüllt per JS -->
-        </tbody>
+        <tbody id="rows"></tbody>
       </table>
     </div>
   </section>
-
 </div>
 
 <script>
 const sid = "{{ session.id }}";
-const needEl = document.getElementById("need");
-const decidedCountEl = document.getElementById("decided_count");
-const tbody = document.querySelector("#ptable tbody");
-const roundInfo = document.getElementById("round_info");
+const rowsTbody = document.getElementById('rows');
+const decidedCountSpan = document.getElementById('decided_count');
+const roundDisp = document.getElementById('round_disp');
+const groupSize = {{ session.group_size }};
 
 async function poll() {
   try {
     const url = "{{ url_for('admin_session_status') }}" + "?session_id=" + encodeURIComponent(sid);
-    const r = await fetch(url, {cache:"no-store"});
+    const r = await fetch(url);
     if (!r.ok) return;
     const data = await r.json();
 
-    // Runde-Label
-    if (data.session && data.session.current_round !== undefined) {
-      roundInfo.textContent = "Runde: " + data.session.current_round + " • Entschieden: ";
-      roundInfo.textContent += (data.decided_count ?? 0) + "/" + (needEl.textContent || "{{ session.group_size }}");
-    }
+    decidedCountSpan.textContent = data.decided_count ?? 0;
+    roundDisp.textContent = data.session?.current_round ?? '{{ round_number }}';
 
-    decidedCountEl.textContent = data.decided_count ?? 0;
+    rowsTbody.innerHTML = "";
+    (data.participants || []).forEach((p, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${idx+1}</td>
+        <td>${p.code}</td>
+        <td>${p.round_display}</td>
+        <td>${p.decided ? "✓" : "–"}</td>
+        <td>${p.choice ?? "–"}</td>
+        <td>${(p.balance ?? "")}</td>
+      `;
+      rowsTbody.appendChild(tr);
+    });
 
-    // Tabelle rendern
-    const rows = (data.participants || []).map(p => {
-      const decided = p.decided ? "✓" : "–";
-      const choice = p.choice ? p.choice : "–";
-      const payout = (p.balance !== null && p.balance !== undefined) ? p.balance : "–";
-      return `<tr>
-          <td>${p.player_no ?? ""}</td>
-          <td>${p.code ?? ""}</td>
-          <td>${p.round_display ?? ""}</td>
-          <td>${decided}</td>
-          <td>${choice}</td>
-          <td>${payout}</td>
-        </tr>`;
-    }).join("");
-
-    tbody.innerHTML = rows || `<tr><td colspan="6" class="muted">Keine Teilnehmer gefunden.</td></tr>`;
-  } catch (e) {
-    /* still */
-  }
+  } catch(e) {}
 }
 
 setInterval(poll, 1000);
@@ -108,28 +76,12 @@ poll();
 
 <style>
 .page { display:flex; flex-direction:column; gap:1rem; }
-.pagehead { display:flex; align-items:center; justify-content:space-between; }
-.actions { display:flex; gap:.5rem; }
 .card { background:#0b1320; border:1px solid #1e2b43; border-radius:10px; padding:1rem; }
-
-.meta { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-.metabox .label { font-size:.9rem; color:#9fb0d1; }
-.metabox .value { font-weight:600; }
-.metabox .sub { font-size:.8rem; color:#7f90b1; margin-top:.15rem; }
-
-.chips { display:flex; gap:.5rem; flex-wrap:wrap; }
-.chip { background:#0f1a2a; border:1px solid #24324d; padding:.25rem .5rem; border-radius:999px; font-size:.85rem; }
-
-.listhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:.5rem; }
-
-.tablewrap { overflow:auto; }
-.tbl { width:100%; border-collapse:collapse; }
-.tbl th, .tbl td { padding:.6rem .5rem; border-bottom:1px dashed #24324d; text-align:left; }
-.tbl thead th { color:#cfe1ff; font-weight:600; }
-.muted { color:#9fb0d1; text-align:center; }
-
-.btn { padding:.55rem .9rem; border:none; border-radius:8px; cursor:pointer; text-decoration:none; display:inline-block; }
+.btn { padding:.5rem .9rem; border-radius:8px; background:#24324d; color:#e8eefc; text-decoration:none; }
 .btn-primary { background:#3a63ff; color:#fff; }
-.btn-secondary { background:#24324d; color:#e8eefc; }
+.table { width:100%; border-collapse:collapse; }
+.table th, .table td { padding:.55rem .6rem; border-bottom:1px solid #1e2b43; text-align:left; }
+.tiny { font-size:.9rem; }
+.muted { color:#aab7d4; }
 </style>
 {% endblock %}
