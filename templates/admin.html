@@ -3,42 +3,31 @@
 <h2>Neue Session anlegen</h2>
 <form method="post">
   <div class="grid grid-3">
-    <div><label>Name</label><input type="text" name="name" value="Session {{ now }}" required></div>
-    <div><label>Gruppengröße (N)</label><input type="number" name="group_size" value="6" min="1" max="20" required></div>
-    <div><label>Runden</label><input type="number" name="rounds" value="20" min="1" max="200" required></div>
+    <div>
+      <label>Name</label>
+      <input type="text" name="name" value="Session {{ now }}" required>
+    </div>
+    <div>
+      <label>Gruppengröße (N)</label>
+      <input type="number" name="group_size" value="6" min="1" max="20" required>
+    </div>
+    <div>
+      <label>Runden</label>
+      <input type="number" name="rounds" value="20" min="1" max="200" required>
+    </div>
   </div>
 
   <div class="grid grid-3">
-    <div><label>Basisbetrag M (pro Runde)</label><input type="number" name="base_payout" value="500" step="1" min="0" required></div>
     <div>
-      <label>Kostenmodus</label>
-      <select name="cost_mode">
-        <option value="type_table" selected>Typen-Tabelle</option>
-        <option value="uniform_table">Einheitliche Tabelle (0/30/60/90/100)</option>
-      </select>
+      <label>Basisbetrag M (pro Runde)</label>
+      <input type="number" name="base_payout" value="500" step="1" required>
+    </div>
+    <div>
+      <label>Watch-Zeit (Sek.)</label>
+      <input type="number" name="watch_time" value="5" step="1" min="1" required>
     </div>
     <div></div>
   </div>
-
-  <div class="grid grid-3">
-    <div><label>cvac (nur für „Einheitliche Tabelle“)</label><input type="number" name="cvac" value="40" step="1" required></div>
-    <div><label>alpha (α) – Info</label><input type="number" name="alpha" value="0.3" step="0.01" required></div>
-    <div><label>cinf – Info</label><input type="number" name="cinf" value="100" step="1" required></div>
-  </div>
-
-  <div class="grid grid-3">
-    <div><label>Subsidy aktiv?</label>
-      <select name="subsidy"><option value="0">Nein</option><option value="1">Ja</option></select></div>
-    <div><label>Subsidy-Betrag</label><input type="number" name="subsidy_amount" value="5" step="1" required></div>
-    <div></div>
-  </div>
-
-  <div class="grid grid-3">
-    <div><label>Reveal-Zeit (Sek.)</label><input type="number" name="reveal_window" value="5" step="1" min="0" required></div>
-    <div><label>Watch-Zeit (Sek.)</label><input type="number" name="watch_time" value="5" step="1" min="0" required></div>
-    <div></div>
-  </div>
-
   <button type="submit">Session erstellen</button>
 </form>
 
@@ -59,12 +48,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }},
-        M={{ '%.0f'|format(s['starting_balance'] or 500) }},
-        mode={{ s['cost_mode'] or 'type_table' }},
-        cvac={{ '%.1f'|format(s['cvac']) }}, α={{ '%.1f'|format(s['alpha']) }}, cinf={{ '%.1f'|format(s['cinf']) }},
-        subsidy={{ s['subsidy'] and 'on' or 'off' }} ({{ '%.0f'|format(s['subsidy_amount'] or 0) }}),
-        reveal={{ s['reveal_window'] }}s, watch={{ s['watch_time'] }}s
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
       </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
@@ -108,12 +92,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }},
-        M={{ '%.0f'|format(s['starting_balance'] or 500) }},
-        mode={{ s['cost_mode'] or 'type_table' }},
-        cvac={{ '%.1f'|format(s['cvac']) }}, α={{ '%.1f'|format(s['alpha']) }}, cinf={{ '%.1f'|format(s['cinf']) }},
-        subsidy={{ s['subsidy'] and 'on' or 'off' }} ({{ '%.0f'|format(s['subsidy_amount'] or 0) }}),
-        reveal={{ s['reveal_window'] }}s, watch={{ s['watch_time'] }}s
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
       </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
@@ -150,12 +129,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }},
-        M={{ '%.0f'|format(s['starting_balance'] or 500) }},
-        mode={{ s['cost_mode'] or 'type_table' }},
-        cvac={{ '%.1f'|format(s['cvac']) }}, α={{ '%.1f'|format(s['alpha']) }}, cinf={{ '%.1f'|format(s['cinf']) }},
-        subsidy={{ s['subsidy'] and 'on' or 'off' }} ({{ '%.0f'|format(s['subsidy_amount'] or 0) }}),
-        reveal={{ s['reveal_window'] }}s, watch={{ s['watch_time'] }}s
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
       </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>

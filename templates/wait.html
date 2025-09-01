@@ -1,25 +1,42 @@
 {% extends "base.html" %}
-{% block content %}
-<p>Danke! Warte, bis alle entschieden haben …</p>
-<p class="mono">Runde {{ round_number }} / {{ session['rounds'] }}</p>
-<div class="notice" id="status">Eingänge: {{ decided }}/{{ session['group_size'] }}</div>
-<div class="notice" id="list">Entschieden: –</div>
-{% endblock %}
-{% block scripts %}
-<script>
-const sid = "{{ session['id'] }}";
-const r   = {{ round_number }};
-const total = {{ session['group_size'] }};
+{% block title %}Vaccination Game – Warten{% endblock %}
 
-async function poll(){
-  const res = await fetch(`/round_status?session_id=${sid}&round=${r}`);
-  if(!res.ok) return;
-  const d = await res.json();
-  document.getElementById('status').textContent = `Eingänge: ${d.decided}/${total}`;
-  const names = (d.decided_players || []).map(n => `<span class="kbd mono">Spieler ${n}</span>`).join(' ');
-  document.getElementById('list').innerHTML = `Entschieden: ${names || "–"}`;
-  if (d.ready) window.location.href = "/reveal";
+{% block content %}
+<div class="page">
+  <h2>Runde {{ round_number }} – Bitte warten</h2>
+
+  <section class="card">
+    <div class="muted">Wir warten, bis alle ihre Entscheidung abgegeben haben…</div>
+  </section>
+
+  <section class="card">
+    <h3>Status</h3>
+    <p>Eingänge: <span id="decided">{{ decided }}</span> / {{ session.group_size }}</p>
+  </section>
+</div>
+
+<script>
+const sid = "{{ session.id }}";
+const roundNo = {{ round_number }};
+const decidedSpan = document.getElementById('decided');
+
+async function poll() {
+  try {
+    const url = "{{ url_for('round_status') }}" + "?session_id=" + encodeURIComponent(sid) + "&round=" + roundNo;
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const data = await r.json();
+    decidedSpan.textContent = data.decided ?? 0;
+    if (data.ready) window.location = "{{ url_for('reveal') }}";
+  } catch (e) {}
 }
-setInterval(poll, 1000); poll();
+setInterval(poll, 1000);
+poll();
 </script>
+
+<style>
+.page { display:flex; flex-direction:column; gap:1rem; }
+.card { background:#0b1320; border:1px solid #1e2b43; border-radius:10px; padding:1rem; }
+.muted { color:#aab7d4; }
+</style>
 {% endblock %}

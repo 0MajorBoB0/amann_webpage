@@ -1,5 +1,5 @@
 import os, sqlite3, uuid, random, string, datetime, io
-from datetime import timedelta
+from datetime import timedelta, timezone
 from functools import wraps
 from flask import (
     Flask, request, redirect, render_template, session as flask_session,
@@ -21,8 +21,6 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 
 # -------------------- Impfspiel: fixe Typen-Kosten (Chef-Tabelle) --------------------
-# Spalten B: Kosten (ECU) wenn man selbst B wählt und 1..5 der ANDEREN A wählen.
-# A: fixe Kosten (unabhängig von den anderen).
 TYPE_COST = {
     1: {"B": [4, 3, 2, 1, 0],  "A": 4},
     2: {"B": [8, 6, 4, 2, 0],  "A": 4},
@@ -31,17 +29,24 @@ TYPE_COST = {
     5: {"B": [24, 18, 12, 6, 0], "A": 32},
     6: {"B": [64, 48, 32, 16, 0], "A": 32},
 }
-B_COLS = 5  # Tabelle definiert 1..5 andere A (N=6)
-
-def b_cost_for(ptype: int, others_choose_A: int) -> float:
-    """Kosten für B je nach Anzahl ANDERER A-Wähler (1..5). Für 0 -> Spalte 1, für >=5 -> Spalte 5."""
-    if ptype not in TYPE_COST:
-        ptype = 1
-    idx = max(1, min(B_COLS, int(others_choose_A))) - 1
-    return TYPE_COST[ptype]["B"][idx]
+B_COLS = 5
 
 def a_cost_for(ptype: int) -> float:
     return TYPE_COST.get(ptype, TYPE_COST[1])["A"]
+
+def b_cost_adapt(ptype: int, others_A: int, N: int) -> float:
+    if ptype not in TYPE_COST:
+        ptype = 1
+    b = TYPE_COST[ptype]["B"]
+    N = max(1, int(N))
+    others_A = max(0, min(int(others_A), max(0, N-1)))
+    if N <= 1:
+        return float(b[0])
+    frac = others_A / float(N - 1)
+    x = frac * B_COLS
+    col = int(x + 0.5)
+    col = max(1, min(B_COLS, col))
+    return float(b[col - 1])
 
 
 # -------------------- DB helpers --------------------
@@ -72,19 +77,18 @@ def ensure_archive_schema(con, base_table):
                 con.execute(f"ALTER TABLE {arch_table} ADD COLUMN {name} {coltype} DEFAULT {dflt}")
     con.commit()
 
+# ---------- UTC helpers (aware) ----------
 def utc_now():
-    return datetime.datetime.utcnow().replace(microsecond=0)
+    return datetime.datetime.now(timezone.utc).replace(microsecond=0)
 
 def iso_utc(dt: datetime.datetime) -> str:
-    return dt.replace(microsecond=0).isoformat() + "Z"
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 def parse_iso_utc(s: str) -> datetime.datetime:
-    s = (s or "").rstrip("Z")
-    return datetime.datetime.fromisoformat(s)
+    return datetime.datetime.fromisoformat((s or "").replace("Z", "+00:00"))
 
 def init_db():
     con = db()
-    # Tabellen
     con.execute(
         """CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, name TEXT, group_size INTEGER, rounds INTEGER,
@@ -112,12 +116,12 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS decisions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, participant_id TEXT,
         round_number INTEGER, choice TEXT, a_cost REAL, b_cost REAL, total_cost REAL, created_at TEXT,
-        reveal INTEGER, payout REAL
+        reveal INTEGER, payout REAL,
+        others_A INTEGER, b_cost_round REAL, base_payout REAL
     )"""
     )
     con.commit()
 
-    # Migrationen
     ensure_column(con, "participants", "join_number", "INTEGER")
     ensure_column(con, "participants", "completed", "INTEGER DEFAULT 0")
     ensure_column(con, "participants", "ptype", "INTEGER")
@@ -144,7 +148,6 @@ def init_db():
     """)
     con.commit()
 
-    # Archive
     con.execute("""CREATE TABLE IF NOT EXISTS archived_sessions    AS SELECT * FROM sessions    WHERE 0""")
     con.execute("""CREATE TABLE IF NOT EXISTS archived_participants AS SELECT * FROM participants WHERE 0""")
     con.execute("""CREATE TABLE IF NOT EXISTS archived_decisions   AS SELECT * FROM decisions   WHERE 0""")
@@ -184,7 +187,6 @@ def current_state(con, p, s) -> str:
 
     r = p["current_round"]
 
-    # Reveal der vorigen Runde anzeigen, falls noch läuft
     if r > 1:
         ph_prev = con.execute(
             "SELECT watch_ends_at FROM round_phases WHERE session_id=? AND round_number=?",
@@ -257,13 +259,12 @@ def join():
             return render_template("join.html", error="Code unbekannt.")
         if p["completed"]:
             return render_template("join.html", error="Dieser Code wurde bereits abgeschlossen. Bitte neuen Code verwenden.")
-        now = utc_now().isoformat()
+        now = iso_utc(utc_now())
         if not p["joined"]:
             nxt = con.execute(
                 "SELECT COALESCE(MAX(join_number),0)+1 AS n FROM participants WHERE session_id=? AND joined=1",
                 (p["session_id"],)
             ).fetchone()["n"]
-            # Typ zuweisen, falls noch keiner gesetzt (zyklisch 1..6)
             ptype = p["ptype"] or ((nxt-1) % 6) + 1
             con.execute(
                 "UPDATE participants SET joined=1, join_number=?, ptype=?, created_at=COALESCE(created_at, ?) WHERE id=?",
@@ -295,6 +296,8 @@ def lobby_status():
     sid = request.args.get("session_id")
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    if not s:
+        return jsonify({"err": "unknown_session"}), 404
     joined = con.execute("SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1", (sid,)).fetchone()["c"]
     return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"]})
 
@@ -307,19 +310,23 @@ def round_view():
     s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
     r = p["current_round"]
     ptype = p["ptype"] or 1
+    N = s["group_size"]
 
-    # Anzeige: Kosten (nicht Prozente) für die neue Round-UI
     a_cost_display = a_cost_for(ptype)
-    b_row_costs = TYPE_COST[ptype]["B"]  # 1×A..5×A der ANDEREN
+    others_max = max(1, N - 1)
+    b_row_costs = [int(b_cost_adapt(ptype, k, N)) for k in range(1, others_max + 1)]
+    b_list = [{"others": k, "cost": b_row_costs[k-1]} for k in range(1, others_max + 1)]
 
     return render_template(
         "round.html",
         session=s,
         round_number=r,
-        N=s["group_size"],
+        N=N,
         a_cost_display=a_cost_display,
-        b_row_costs=b_row_costs,
+        b_list=b_list,
+        others_max=others_max,
         base_payout=int(s["starting_balance"] or 500),
+        balance_current=int(s["starting_balance"] or 500)
     )
 
 @app.post("/choose")
@@ -335,13 +342,15 @@ def choose():
     s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
     r = p["current_round"]
     already = con.execute("SELECT 1 FROM decisions WHERE participant_id=? AND round_number=?", (p["id"], r)).fetchone()
-    if already: return ("Already chosen", 409)
+    if already:  # client leitet trotzdem zur Warteseite
+        return jsonify({"ok": True})
     con.execute(
         "INSERT INTO decisions (session_id, participant_id, round_number, choice, created_at) VALUES (?,?,?,?,?)",
         (s["id"], p["id"], r, choice, utc_now().isoformat()),
     )
     con.commit()
-    return ("OK", 200)
+    # WICHTIG: JSON-Antwort; Client navigiert unmittelbar zu /wait
+    return jsonify({"ok": True})
 
 @app.route("/wait")
 @guard("wait")
@@ -359,6 +368,8 @@ def round_status():
     r = int(request.args.get("round"))
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    if not s:
+        return jsonify({"err": "unknown_session"}), 404
 
     decided = con.execute("SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?", (sid, r)).fetchone()["c"]
     ready = decided >= s["group_size"]
@@ -367,7 +378,6 @@ def round_status():
     watch_ends_at = None
 
     if ready:
-        # abrechnen, falls noch nicht geschehen (total_cost NULL)
         missing = con.execute(
             "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=? AND total_cost IS NULL",
             (sid, r)
@@ -386,11 +396,6 @@ def round_status():
             N = s["group_size"]
             M = float(s["starting_balance"] or 500)
 
-            # Schema sicherstellen (für neue Felder)
-            ensure_column(con, "decisions", "others_A", "INTEGER")
-            ensure_column(con, "decisions", "b_cost_round", "REAL")
-            ensure_column(con, "decisions", "base_payout", "REAL")
-
             for row in rows:
                 pid = row["participant_id"]
                 choice = row["choice"]
@@ -398,16 +403,15 @@ def round_status():
 
                 if choice == "A":
                     cost = a_cost_for(ptype)
-                    others_A = max(0, total_A - 1)  # reine Info
+                    others_A = max(0, total_A - 1)
                     b_cost_round = None
                 else:
-                    others_A = total_A             # ich bin B, daher "andere A" = totale A
-                    cost = b_cost_for(ptype, others_A)
-                    b_cost_round = cost            # persönliche B-Kosten dieser Runde
+                    others_A = total_A
+                    cost = b_cost_adapt(ptype, others_A, N)
+                    b_cost_round = cost
 
                 payout = max(M - float(cost), 0)
 
-                # decisions aktualisieren
                 con.execute("""UPDATE decisions
                                SET a_cost=?, b_cost=?, total_cost=?,
                                    payout=?, base_payout=?, others_A=?, b_cost_round=?, reveal=1
@@ -416,13 +420,10 @@ def round_status():
                              cost if choice=="B" else None,
                              cost, payout, M, others_A, b_cost_round, row["id"]))
 
-                # Runden-Reset: Teilnehmer-Balance = Auszahlung dieser Runde
                 con.execute("UPDATE participants SET balance=? WHERE id=?", (payout, pid))
 
-            # Nächste Runde schieben
             con.execute("UPDATE participants SET current_round = current_round + 1 WHERE session_id=? AND current_round=?", (sid, r))
 
-            # Reveal/Watch-Fenster setzen
             now = utc_now()
             sec = int(s["watch_time"] or s["reveal_window"] or 5)
             con.execute("""INSERT OR REPLACE INTO round_phases
@@ -431,7 +432,6 @@ def round_status():
                         (sid, r, iso_utc(now), iso_utc(now + timedelta(seconds=sec)), iso_utc(now)))
             con.commit()
 
-        # Payload für Reveal aufbauen
         rp = con.execute("SELECT * FROM round_phases WHERE session_id=? AND round_number=?", (sid, r)).fetchone()
         watch_ends_at = rp["watch_ends_at"] if rp else None
 
@@ -482,15 +482,15 @@ def reveal_status():
     ph = con.execute("SELECT decision_ends_at, watch_ends_at FROM round_phases WHERE session_id=? AND round_number=?", (sid, r)).fetchone()
     now = utc_now()
     if not ph:
-        sec = int(s["reveal_window"] or 5)
-        con.execute(
-            "INSERT OR REPLACE INTO round_phases (session_id,round_number,decision_ends_at,watch_ends_at,created_at) VALUES (?,?,?,?,?)",
-            (sid, r, iso_utc(now), iso_utc(now + timedelta(seconds=sec)), iso_utc(now))
-        )
-        con.commit()
-        ends_at = iso_utc(now + timedelta(seconds=sec))
+      sec = int(s["reveal_window"] or 5)
+      con.execute(
+          "INSERT OR REPLACE INTO round_phases (session_id,round_number,decision_ends_at,watch_ends_at,created_at) VALUES (?,?,?,?,?)",
+          (sid, r, iso_utc(now), iso_utc(now + timedelta(seconds=sec)), iso_utc(now))
+      )
+      con.commit()
+      ends_at = iso_utc(now + timedelta(seconds=sec))
     else:
-        ends_at = ph["watch_ends_at"] if ph["watch_ends_at"].endswith("Z") else ph["watch_ends_at"] + "Z"
+      ends_at = ph["watch_ends_at"] if ph["watch_ends_at"].endswith("Z") else ph["watch_ends_at"] + "Z"
 
     con.execute("UPDATE decisions SET reveal=1 WHERE session_id=? AND round_number=? AND (reveal IS NULL OR reveal!=1)", (sid, r))
     con.commit()
@@ -538,7 +538,6 @@ def feedback():
         (s["id"], p["id"], r),
     ).fetchone()
 
-    # Gruppenübersicht
     decided_A = con.execute(
         "SELECT COUNT(*) AS c FROM decisions WHERE session_id=? AND round_number=? AND choice='A'",
         (s["id"], r),
@@ -608,27 +607,16 @@ def admin():
     con = db()
 
     if request.method == "POST":
-        # --- neue/angepasste Felder einlesen ---
-        name = request.form.get("name", f"Session {datetime.datetime.now():%Y-%m-%d %H:%M}")
-        group_size = int(request.form.get("group_size", "6"))
-        rounds = int(request.form.get("rounds", "20"))
-
-        # Rundenauszahlung (M) & Modus
+        name        = request.form.get("name", f"Session {datetime.datetime.now():%Y-%m-%d %H:%M}")
+        group_size  = int(request.form.get("group_size", "6"))
+        rounds      = int(request.form.get("rounds", "20"))
         base_payout = int(request.form.get("base_payout", "500"))
-        cost_mode   = request.form.get("cost_mode", "type_table")  # 'type_table' | 'uniform_table'
+        watch_time  = int(request.form.get("watch_time", "5"))
+        reveal_window = watch_time
 
-        # Bestehende Felder (für uniform_table relevant / Info)
-        cvac = float(request.form.get("cvac", "40"))
-        alpha = float(request.form.get("alpha", "0.3"))  # legacy/informativ
-        cinf = float(request.form.get("cinf", "100"))
-        subsidy = int(request.form.get("subsidy", "0"))
-        subsidy_amount = float(request.form.get("subsidy_amount", "5"))
-        reveal_window = int(request.form.get("reveal_window", "5"))
-        watch_time = int(request.form.get("watch_time", reveal_window))
-
-        # Schema sicherstellen
-        ensure_column(con, "sessions", "starting_balance", "REAL DEFAULT 500")
-        ensure_column(con, "sessions", "cost_mode", "TEXT DEFAULT 'type_table'")
+        cvac = 0.0; alpha = 0.0; cinf = 0.0
+        subsidy = 0; subsidy_amount = 0.0
+        cost_mode = "type_table"
 
         sid = str(uuid.uuid4())
         con.execute("""
@@ -638,10 +626,9 @@ def admin():
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             sid, name, group_size, rounds, cvac, alpha, cinf, subsidy, subsidy_amount,
-            base_payout, utc_now().isoformat(), 0, reveal_window, watch_time, cost_mode
+            base_payout, iso_utc(utc_now()), 0, reveal_window, watch_time, cost_mode
         ))
 
-        # Teilnehmer + Typen zyklisch 1..6
         for i in range(group_size):
             pid = str(uuid.uuid4())
             while True:
@@ -649,10 +636,10 @@ def admin():
                 if not con.execute("SELECT 1 FROM participants WHERE code=?", (code,)).fetchone():
                     break
             ptype = (i % 6) + 1
-            theta = 0.0; lambd = 0.0  # legacy Felder
+            theta = 0.0; lambd = 0.0
             con.execute(
                 "INSERT INTO participants (id,session_id,code,theta,lambda,joined,join_number,current_round,balance,completed,created_at,ptype) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                (pid,sid,code,theta,lambd,0,None,1,base_payout,0,utc_now().isoformat(),ptype)
+                (pid,sid,code,theta,lambd,0,None,1,base_payout,0,iso_utc(utc_now()),ptype)
             )
         con.commit()
         return redirect(url_for("admin"))
@@ -759,116 +746,56 @@ def admin_export_session_xlsx():
     if not s: return ("Not found", 404)
 
     wb = Workbook()
-
-    # --- Sheet: Session (zusätzliche Parameter enthalten) ---
     ws0 = wb.active; ws0.title = "Session"
-    ws0.append([
-        "id","name","group_size","rounds","starting_balance",
-        "reveal_window","watch_time","created_at","archived",
-        "cost_mode","cvac","alpha","cinf","subsidy","subsidy_amount"
-    ])
-    ws0.append([
-        s["id"], s["name"], s["group_size"], s["rounds"], s["starting_balance"],
-        s["reveal_window"], s["watch_time"], s["created_at"], s["archived"],
-        (s["cost_mode"] if "cost_mode" in s.keys() else "type_table"),
-        s["cvac"], s["alpha"], s["cinf"], s["subsidy"], s["subsidy_amount"]
-    ])
+    ws0.append(["id","name","group_size","rounds","starting_balance","watch_time","created_at","archived"])
+    ws0.append([s["id"], s["name"], s["group_size"], s["rounds"], s["starting_balance"], s["watch_time"], s["created_at"], s["archived"]])
 
-    # --- Sheet: Participants (wie bisher) ---
     ws1 = wb.create_sheet("Participants")
     ws1.append(["player_no","code","ptype","joined","current_round","balance","completed","created_at"])
-    for p in con.execute("""
-        SELECT join_number, code, ptype, joined, current_round, balance, completed, created_at
-        FROM participants WHERE session_id=? ORDER BY join_number, code
-    """, (sid,)):
+    for p in con.execute("SELECT join_number, code, ptype, joined, current_round, balance, completed, created_at FROM participants WHERE session_id=? ORDER BY join_number, code", (sid,)):
         ws1.append([p["join_number"], p["code"], p["ptype"], p["joined"], p["current_round"], p["balance"], p["completed"], p["created_at"]])
 
-    # --- Sheet: Decisions (erweitert um others_A, b_cost_round, base_payout) ---
     ws2 = wb.create_sheet("Decisions")
     ws2.append(["round","player_no","code","ptype","choice","a_cost","b_cost","total_cost","payout","created_at","revealed","others_A","b_cost_round","base_payout"])
     for d in con.execute("""
         SELECT d.round_number, p.join_number, p.code, p.ptype, d.choice,
                d.a_cost, d.b_cost, d.total_cost, d.payout, d.created_at, d.reveal,
                d.others_A, d.b_cost_round, d.base_payout
-        FROM decisions d
-        JOIN participants p ON p.id=d.participant_id
-        WHERE d.session_id=?
-        ORDER BY d.round_number, p.join_number, p.code
+        FROM decisions d JOIN participants p ON p.id=d.participant_id
+        WHERE d.session_id=? ORDER BY d.round_number, p.join_number, p.code
     """, (sid,)):
-        ws2.append([
-            d["round_number"], d["join_number"], d["code"], d["ptype"], d["choice"],
-            d["a_cost"], d["b_cost"], d["total_cost"], d["payout"], d["created_at"], d["reveal"],
-            d["others_A"], d["b_cost_round"], d["base_payout"]
-        ])
+        ws2.append([d["round_number"], d["join_number"], d["code"], d["ptype"], d["choice"],
+                    d["a_cost"], d["b_cost"], d["total_cost"], d["payout"], d["created_at"], d["reveal"],
+                    d["others_A"], d["b_cost_round"], d["base_payout"]])
 
-    # --- Sheet: Design (kompakte Übersicht aller Parameter) ---
     ws3 = wb.create_sheet("Design")
     ws3.append(["Parameter","Wert","Kommentar"])
-    cost_mode = (s["cost_mode"] if "cost_mode" in s.keys() and s["cost_mode"] else "type_table")
-    rows_design = [
-        ("Session ID",         s["id"], ""),
-        ("Session Name",       s["name"], ""),
-        ("Gruppengröße (N)",   s["group_size"], "Anzahl Teilnehmende pro Gruppe"),
-        ("Runden",             s["rounds"], "Anzahl Perioden mit identischen Parametern"),
-        ("Basisbetrag M",      s["starting_balance"], "Runden-Startwert; Auszahlung = M − Kosten"),
-        ("Kostenmodus",        cost_mode, "type_table = Chef-Typentabelle; uniform_table = einheitliche Tabelle"),
-        ("cvac",               s["cvac"], "Nur im uniform_table-Modus relevant (A-Kosten vor Subsidy)"),
-        ("alpha (Info)",       s["alpha"], "Dokumentationsfeld"),
-        ("cinf",               s["cinf"], "Dokumentationsfeld"),
-        ("Subsidy aktiv",      s["subsidy"], "0/1"),
-        ("Subsidy-Betrag",     s["subsidy_amount"], "wird von cvac abgezogen (uniform_table)"),
-        ("Reveal-Fenster (s)", s["reveal_window"], "Dauer bis Feedback/Re-View"),
-        ("Watch-Zeit (s)",     s["watch_time"], "Dauer der Reveal-Anzeige"),
-        ("Erstellt (UTC)",     s["created_at"], ""),
-        ("Archiviert",         s["archived"], "1 = archiviert"),
-    ]
-    for k,v,c in rows_design:
+    for k,v,c in [
+        ("Session ID", s["id"], ""),
+        ("Session Name", s["name"], ""),
+        ("Gruppengröße (N)", s["group_size"], "Anzahl Teilnehmende pro Gruppe"),
+        ("Runden", s["rounds"], "Anzahl Perioden; Parameter konstant"),
+        ("Basisbetrag M", s["starting_balance"], "Rundenstart; Auszahlung = M − Kosten"),
+        ("Watch-Zeit (s)", s["watch_time"], "Dauer der Ergebnisanzeige"),
+        ("Erstellt (UTC)", s["created_at"], ""),
+        ("Archiviert", s["archived"], "1 = archiviert"),
+    ]:
         ws3.append([k,v,c])
 
-    # --- Sheet: TypeCostTable (nur bei type_table) ---
-    if cost_mode == "type_table":
-        ws4 = wb.create_sheet("TypeCostTable")
-        ws4.append(["Erklärung","Wert"])
-        ws4.append(["Interpretation","B-Spalten beziehen sich auf Anzahl ANDERER A (1..5), Werte = Kosten in ECU"])
-        ws4.append([])
-        ws4.append(["Typ","A_cost","B_cost_1A","B_cost_2A","B_cost_3A","B_cost_4A","B_cost_5A"])
-        for t in sorted(TYPE_COST.keys()):
-            ws4.append([t, TYPE_COST[t]["A"], *TYPE_COST[t]["B"][:5]])
+    ws4 = wb.create_sheet("TypeCostTable")
+    ws4.append(["Typ","A_cost","B_cost_1A","B_cost_2A","B_cost_3A","B_cost_4A","B_cost_5A"])
+    for t in sorted(TYPE_COST.keys()):
+        ws4.append([t, TYPE_COST[t]["A"], *TYPE_COST[t]["B"][:5]])
 
-    # --- Sheet: UniformBTable (nur bei uniform_table) ---
-    if cost_mode == "uniform_table":
-        ws5 = wb.create_sheet("UniformBTable")
-        ws5.append(["Hinweis","Wert"])
-        ws5.append(["Interpretation","B-Kosten nach Anzahl weiterer B; zusätzlich 'andere A' (N=6) = 5 - weitere_B"])
-        ws5.append([])
-        b_table = [0,30,60,90,100]  # Standard
-        cvac = s["cvac"] if s["cvac"] is not None else 40
-        sub = s["subsidy"] if s["subsidy"] is not None else 0
-        sub_amt = s["subsidy_amount"] if s["subsidy_amount"] is not None else 0
-        a_cost_uniform = max(int(round(cvac - sub*sub_amt)), 0)
-        ws5.append(["A_cost (cvac - subsidy)", a_cost_uniform])
-        ws5.append([])
-        ws5.append(["weitere_B","B_cost","andere_A (bei N=6)"])
-        for k in range(1,6):
-            ws5.append([k, b_table[k-1], 5 - k])
-
-    # --- Sheet: RoundSettings (Replikationssicherheit) ---
-    ws6 = wb.create_sheet("RoundSettings")
-    ws6.append(["round","M","cost_mode","cvac","alpha","cinf","subsidy","subsidy_amount","reveal_window","watch_time"])
+    ws5 = wb.create_sheet("RoundSettings")
+    ws5.append(["round","M","N","watch_time"])
     for rr in range(1, int(s["rounds"]) + 1):
-        ws6.append([
-            rr, s["starting_balance"], cost_mode,
-            s["cvac"], s["alpha"], s["cinf"],
-            s["subsidy"], s["subsidy_amount"],
-            s["reveal_window"], s["watch_time"],
-        ])
+        ws5.append([rr, s["starting_balance"], s["group_size"], s["watch_time"]])
 
-    # --- Datei ausliefern ---
     buf = io.BytesIO()
     wb.save(buf); buf.seek(0)
     filename = f"session_{s['name'].replace(' ', '_')}_{s['id'][:8]}.xlsx"
-    return send_file(
-        buf,
+    return send_file(buf,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
         download_name=filename
