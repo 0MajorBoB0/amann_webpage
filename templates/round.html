@@ -1,54 +1,101 @@
 {% extends "base.html" %}
 {% block content %}
-<p>Runde <strong>{{ round_number }}</strong> von {{ session['rounds'] }}</p>
+<h2>Runde {{ round_number }} von {{ session['rounds'] }}</h2>
+
+<div class="card" style="margin-bottom:12px">
+  <strong>Ihre Aufgabe:</strong> Wählen Sie eine Option.
+  <span class="badge">A</span>
+  <span class="badge">B</span>
+</div>
 
 <div class="grid grid-2">
-  <div>
+  <div class="card">
     <h3>Option A</h3>
-    <div class="choice">
-      <input type="radio" name="choice" value="A" id="A">
-      <label for="A"><span class="big">Fixe Kosten:</span> {{ a_cost_preview }} ECU</label>
+    <p class="small">fester Betrag, unabhängig von den Entscheidungen anderer</p>
+    <p>
+      <strong>Ihre Kosten (A):</strong>
+      <span class="mono">{{ a_cost_display }}</span> ECU
+    </p>
+    <div class="notice small">
+      Auszahlung dieser Runde = <span class="mono">M − Kosten</span>.
+      Basisbetrag M = <span class="mono">{{ base_payout }}</span> ECU.
     </div>
   </div>
-  <div>
+
+  <div class="card">
     <h3>Option B</h3>
-    <div class="choice">
-      <input type="radio" name="choice" value="B" id="B">
-      <label for="B"><span class="big">Variable Kosten:</span> 0–{{ b_cost_max|round(0) }} ECU</label>
-    </div>
+    <p class="small" style="opacity:.9">
+      Ihre Kosten hängen davon ab, wie viele der <strong>anderen</strong> in Ihrer Gruppe <strong>A</strong> wählen.
+    </p>
+    <table class="table small">
+      <thead>
+        <tr>
+          <th>Andere A</th>
+          <th>1×A</th>
+          <th>2×A</th>
+          <th>3×A</th>
+          <th>4×A</th>
+          <th>5×A</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Ihre Kosten (B)</td>
+          {% for c in b_row_costs %}
+            <td class="mono">{{ c }} ECU</td>
+          {% endfor %}
+        </tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
-<button id="submit" disabled>Entscheidung abgeben</button>
+<form onsubmit="return sendChoice(event)" style="margin-top:10px">
+  <div class="grid grid-2">
+    <button type="submit" name="choice" value="A">Option A wählen</button>
+    <button type="submit" name="choice" value="B" class="secondary">Option B wählen</button>
+  </div>
+</form>
 
-<hr>
-<h3>Live-Status</h3>
-<div class="notice" id="status">Eingänge: 0/{{ session['group_size'] }}</div>
-<div class="notice" id="list">Entschieden: –</div>
+<h3 style="margin-top:18px">Status</h3>
+<div class="notice" id="ing">Eingänge: 0/{{ N }}</div>
+<div class="notice" id="decided">Entschieden: –</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const radios = document.querySelectorAll('input[name="choice"]');
-const btn = document.getElementById('submit');
-radios.forEach(r => r.addEventListener('change', () => btn.disabled = false));
-btn.addEventListener('click', async () => {
-  const sel = [...radios].find(r => r.checked);
-  if (!sel) return;
-  btn.disabled = true;
-  const r = await fetch("/choose", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ choice: sel.value }) });
-  if (r.ok) window.location.href = "/wait"; else { btn.disabled=false; alert("Fehler beim Senden."); }
-});
+const sid = "{{ session['id'] }}";
+const r   = {{ round_number }};
+const total = {{ N }};
 
-// Live-Anzeige wer schon abgegeben hat
-async function tick(){
+async function sendChoice(e){
+  e.preventDefault();
+  const choice = e.submitter?.value;
   try{
-    const r = await fetch("/round_status?session_id={{ session['id'] }}&round={{ round_number }}");
-    const d = await r.json();
-    document.getElementById('status').textContent = "Eingänge: " + d.decided + "/{{ session['group_size'] }}";
-    document.getElementById('list').innerHTML = "Entschieden: " + (d.decided_codes.length ? d.decided_codes.map(c => `<span class='kbd mono'>${c}</span>`).join(' ') : "–");
+    const res = await fetch('/choose', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({choice})
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    window.location.href = "/wait";
+  }catch(err){
+    alert("Fehler beim Senden.");
+  }
+  return false;
+}
+
+async function poll(){
+  try{
+    const res = await fetch(`/round_status?session_id=${sid}&round=${r}`);
+    if(!res.ok) return;
+    const d = await res.json();
+    document.getElementById('ing').textContent = `Eingänge: ${d.decided}/${total}`;
+    const names = (d.decided_players||[]).map(n => `<span class="kbd mono">Spieler ${n}</span>`).join(' ');
+    document.getElementById('decided').innerHTML = `Entschieden: ${names || "–"}`;
+    if(d.ready) window.location.href = "/reveal";
   }catch(e){}
 }
-setInterval(tick, 1000); tick();
+setInterval(poll, 1000); poll();
 </script>
 {% endblock %}

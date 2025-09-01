@@ -1,19 +1,7 @@
-
 {% extends "base.html" %}
 {% block content %}
-<p>Session: <span class="badge mono">{{ session['name'] }}</span> • Code: <span class="kbd mono">{{ participant['code'] }}</span></p>
+<p>Session: <span class="badge mono">{{ session['name'] }}</span></p>
 <p>Spieler im Raum: <strong id="count">{{ joined }}/{{ session['group_size'] }}</strong></p>
-{% if not participant['alias'] %}
-  <div class="notice">
-    <form method="post" action="/alias">
-      <div class="alias">
-        <label>Alias setzen:</label>
-        <input type="text" name="alias" required>
-        <button type="submit">Speichern</button>
-      </div>
-    </form>
-  </div>
-{% else %}<p>Alias: <span class="kbd mono">{{ participant['alias'] }}</span></p>{% endif %}
 <div class="notice"><ul><li>Warte, bis alle Plätze belegt sind.</li><li>Dann startet Runde 1 automatisch.</li></ul></div>
 {% endblock %}
 {% block scripts %}
@@ -25,3 +13,4 @@ setInterval(async ()=>{
 }, 1200);
 </script>
 {% endblock %}
+

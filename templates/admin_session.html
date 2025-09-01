@@ -10,7 +10,6 @@
   <span class="badge">N={{ session['group_size'] }}</span>
   <span class="badge">R={{ session['rounds'] }}</span>
   <span class="badge">reveal={{ session['reveal_window'] }}s</span>
-  <span class="badge">watch={{ session['watch_time'] }}s</span>
   {% if session['archived'] %}<span class="badge" style="background:#1b3a2a">archiviert</span>{% endif %}
 </p>
 
@@ -20,20 +19,15 @@
     <div class="notice" id="decInfo">Entschieden: <span id="dec">0</span>/<span id="tot">0</span></div>
     <table class="table" style="margin-top:8px">
       <thead>
-        <tr><th>Code</th><th>Alias</th><th>Kontostand</th><th>Round</th><th>Status</th><th>Wahl</th></tr>
+        <tr><th>Spieler</th><th>Code</th><th>Auszahlung</th><th>Round</th><th>Status</th><th>Wahl</th></tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
 
   <div class="card">
-    <h3>Chat</h3>
-    <div id="chat" class="notice" style="height:300px; overflow:auto"></div>
-    <div style="margin-top:10px;">
-      <a href="/admin/export_session_xlsx?session_id={{ session['id'] }}">
-        <button>Export</button>
-      </a>
-    </div>
+    <h3>Session exportieren</h3>
+    <a href="/admin/export_session_xlsx?session_id={{ session['id'] }}"><button>Export (.xlsx)</button></a>
   </div>
 </div>
 {% endblock %}
@@ -42,7 +36,6 @@
 <script>
 const sid = "{{ session['id'] }}";
 const tbody = document.getElementById('tbody');
-const chatBox = document.getElementById('chat');
 
 async function pollStatus(){
   try{
@@ -56,27 +49,16 @@ async function pollStatus(){
       const tr = document.createElement('tr');
       const dot = p.decided ? "<span class='badge' style='background:#1b3a2a'>✔</span>" : "<span class='badge'>…</span>";
       tr.innerHTML = `
+        <td>${p.player_no ? 'Spieler ' + p.player_no : '—'}</td>
         <td class="mono">${p.code}</td>
-        <td>${p.alias || "—"}</td>
         <td class="mono">${(p.balance ?? 0).toFixed(2)}</td>
-        <td class="mono">${p.current_round}</td>
+        <td class="mono">${p.round_display}</td>
         <td>${dot}</td>
         <td class="mono">${p.choice || "-"}</td>`;
       tbody.appendChild(tr);
     });
   }catch(e){}
 }
-
-async function pollChat(){
-  try{
-    const r = await fetch(`/admin/session_chat?session_id=${sid}`);
-    const msgs = await r.json();
-    chatBox.innerHTML = msgs.map(m => `<div><span class="mono" style="opacity:.7">${m.ts}</span> <strong>${m.alias}</strong>: ${m.text}</div>`).join("");
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }catch(e){}
-}
-
 setInterval(pollStatus, 1000); pollStatus();
-setInterval(pollChat, 1500); pollChat();
 </script>
 {% endblock %}

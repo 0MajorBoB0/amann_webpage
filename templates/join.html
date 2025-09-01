@@ -1,13 +1,14 @@
-
 {% extends "base.html" %}
 {% block content %}
-<p>Gib deinen <strong>Beitrittscode</strong> ein. Optional: Alias für den Chat.</p>
-<form method="post" action="/join">
-  <label>Code</label>
-  <input type="text" name="code" placeholder="QJ9F7A" required autofocus>
-  <label>Alias (optional)</label>
-  <input type="text" name="alias" placeholder="z. B. Alex">
+<h2>Beitreten</h2>
+{% if error %}<div class="notice" style="background:#3b1f21">{{ error }}</div>{% endif %}
+<form method="post" style="margin-top:10px">
+  <div class="grid grid-2">
+    <div>
+      <label>Teilnahmecode</label>
+      <input type="text" name="code" placeholder="z. B. 7KJ4QZ" required>
+    </div>
+  </div>
   <button type="submit">Beitreten</button>
 </form>
-{% if error %}<p style="color:#ef4444">{{ error }}</p>{% endif %}
 {% endblock %}
