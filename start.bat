@@ -2,8 +2,6 @@
 
 chcp 65001 >nul
 
-setlocal EnableDelayedExpansion
-
  
 
 cd /d "%~dp0"
@@ -22,7 +20,7 @@ echo.
 
 :: --- Check embedded Python ---
 
-set PYTHON=%~dp0python\python.exe
+set "PYTHON=%~dp0python\python.exe"
 
 if not exist "%PYTHON%" (
 
@@ -30,9 +28,7 @@ if not exist "%PYTHON%" (
 
     echo Bitte fuehren Sie zuerst setup.bat aus.
 
-    pause
-
-    exit /b 1
+    goto :end
 
 )
 
@@ -48,9 +44,7 @@ if errorlevel 1 (
 
     echo Bitte fuehren Sie zuerst setup.bat aus.
 
-    pause
-
-    exit /b 1
+    goto :end
 
 )
 
@@ -60,9 +54,20 @@ if errorlevel 1 (
 
 echo [1/4] Generiere Passwoerter...
 
-for /f %%i in ('"%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(48))"') do set SECRET_KEY=%%i
 
-for /f %%i in ('"%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(16))"') do set ADMIN_PASSWORD=%%i
+"%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(48))" > _tmp_secret.txt
+
+set /p SECRET_KEY=<_tmp_secret.txt
+
+del _tmp_secret.txt
+
+ 
+
+"%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(16))" > _tmp_admin.txt
+
+set /p ADMIN_PASSWORD=<_tmp_admin.txt
+
+del _tmp_admin.txt
 
  
 
@@ -72,7 +77,7 @@ set FLASK_DEBUG=0
 
 set PORT=8000
 
-set THREADS=32
+set THREADS=48
 
  
 
@@ -94,7 +99,7 @@ echo.
 
 echo [2/4] Starte Server...
 
-start /b "" "%PYTHON%" serve_waitress.py
+start /b "" "%PYTHON%" "%~dp0serve_waitress.py"
 
  
 
@@ -108,7 +113,7 @@ for /L %%i in (1,1,30) do (
 
     timeout /t 1 /nobreak >nul
 
-    powershell -Command "(Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/healthz' -UseBasicParsing -TimeoutSec 2).StatusCode" 2>nul | findstr "200" >nul
+    powershell -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:%PORT%/healthz' -UseBasicParsing -TimeoutSec 2; if($r.StatusCode -eq 200) { exit 0 } } catch { exit 1 }" 2>nul
 
     if not errorlevel 1 (
 
@@ -128,9 +133,9 @@ if "%HEALTHY%"=="0" (
 
     echo [FEHLER] Server konnte nicht gestartet werden.
 
-    pause
+    echo Pruefe ob Port %PORT% bereits belegt ist.
 
-    exit /b 1
+    goto :end
 
 )
 
@@ -172,13 +177,13 @@ start /b "" cloudflared.exe tunnel --url http://127.0.0.1:%PORT% --protocol http
 
 echo       Warte auf oeffentliche URL...
 
-set PUBLIC_URL=
+set "PUBLIC_URL="
 
 for /L %%i in (1,1,45) do (
 
     timeout /t 2 /nobreak >nul
 
-    for /f "tokens=*" %%a in ('powershell -Command "Select-String -Path 'cloudflared.log' -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1 | ForEach-Object { $_.Matches[0].Value }"') do set PUBLIC_URL=%%a
+    for /f "tokens=*" %%a in ('powershell -Command "if(Test-Path cloudflared.log){Select-String -Path cloudflared.log -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1 | ForEach-Object { $_.Matches[0].Value }}"') do set "PUBLIC_URL=%%a"
 
     if defined PUBLIC_URL goto :tunnel_ready
 
@@ -237,3 +242,13 @@ echo.
 :: Keep window open
 
 cmd /k
+
+exit /b 0
+
+ 
+
+:end
+
+echo.
+
+pause
