@@ -27,7 +27,6 @@ if errorlevel 1 (
 :: --- Generate secrets ---
 echo [1/4] Generiere Passwoerter...
 
-:: Erzeuge Passwörter über temporäre Datei (vermeidet Anführungszeichen-Problem)
 "%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(48))" > _tmp_secret.txt
 set /p SECRET_KEY=<_tmp_secret.txt
 del _tmp_secret.txt
@@ -40,7 +39,6 @@ set FLASK_ENV=production
 set FLASK_DEBUG=0
 set PORT=8000
 set THREADS=48
-
 
 :: --- Start server ---
 echo [2/4] Starte Server...
@@ -110,12 +108,49 @@ echo.
 echo   ADMIN-PASSWORT: %ADMIN_PASSWORD%
 echo ══════════════════════════════════════════════════════════════
 echo.
-echo   Server laeuft. Dieses Fenster NICHT schliessen!
-echo   Zum Beenden: Fenster schliessen
+echo   Server laeuft.
+echo   Zum Beenden: "close server" eingeben oder Fenster schliessen
 echo.
 
-:: Keep window open
-cmd /k
+:: --- Command loop ---
+:cmd_loop
+set "CMD="
+set /p "CMD=> "
+if /i "%CMD%"=="close server" goto :shutdown
+if /i "%CMD%"=="exit" goto :shutdown
+if /i "%CMD%"=="quit" goto :shutdown
+if /i "%CMD%"=="stop" goto :shutdown
+echo   Unbekannter Befehl. Zum Beenden: "close server"
+goto :cmd_loop
+
+:shutdown
+echo.
+echo Fahre Server herunter...
+
+:: Stop cloudflared
+taskkill /f /im cloudflared.exe >nul 2>&1
+echo   Cloudflare Tunnel beendet.
+
+:: Stop Python server
+taskkill /f /im python.exe >nul 2>&1
+echo   Server beendet.
+
+:: Backup database
+echo   Erstelle Backup...
+if exist "game.db" (
+    if not exist "backups" mkdir backups
+    for /f "tokens=2 delims==" %%a in ('wmic OS Get localdatetime /value') do set "dt=%%a"
+    set "BACKUP_NAME=backups\game_%dt:~0,8%_%dt:~8,6%.db"
+    copy "game.db" "%BACKUP_NAME%" >nul 2>&1
+    echo   Backup erstellt.
+) else (
+    echo   Keine Datenbank vorhanden.
+)
+
+echo.
+echo Server wurde ordnungsgemaess beendet.
+echo.
+pause
 exit /b 0
 
 :end
