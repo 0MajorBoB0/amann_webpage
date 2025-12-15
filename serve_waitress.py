@@ -1,6 +1,13 @@
+import os
+import sys
+
+# Stelle sicher dass app.py gefunden wird (für embedded Python)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(APP_DIR)
+sys.path.insert(0, APP_DIR)
+
 from app import app, init_db
 from waitress import serve
-import os
 
 init_db()
 
