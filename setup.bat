@@ -43,28 +43,31 @@ if "%PTH_FILE%"=="" (
 :: --- Check if pip works ---
 echo [2/4] Pruefe pip...
 "%PYTHON%" -m pip --version >nul 2>&1
-if errorlevel 1 (
-    echo       pip nicht gefunden, installiere...
+if errorlevel 1 goto :install_pip
+echo       pip ist bereit.
+goto :install_deps
 
-    if not exist "get-pip.py" (
-        echo       Lade get-pip.py herunter...
-        powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile 'get-pip.py'"
-    )
+:install_pip
+echo       pip nicht gefunden, installiere...
 
-    echo       Installiere pip...
-    "%PYTHON%" get-pip.py --no-warn-script-location
-    del get-pip.py 2>nul
-
-    "%PYTHON%" -m pip --version >nul 2>&1
-    if errorlevel 1 (
-        echo [FEHLER] pip Installation fehlgeschlagen!
-        goto :end
-    )
-    echo       pip erfolgreich installiert.
-) else (
-    echo       pip ist bereit.
+if not exist "get-pip.py" (
+    echo       Lade get-pip.py herunter...
+    powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile 'get-pip.py'"
 )
 
+echo       Installiere pip...
+"%PYTHON%" get-pip.py --no-warn-script-location
+del get-pip.py 2>nul
+
+:: Verify pip works now
+"%PYTHON%" -m pip --version >nul 2>&1
+if errorlevel 1 (
+    echo [FEHLER] pip Installation fehlgeschlagen!
+    goto :end
+)
+echo       pip erfolgreich installiert.
+
+:install_deps
 :: --- Install dependencies ---
 echo [3/4] Installiere Abhaengigkeiten...
 "%PYTHON%" -m pip install --no-warn-script-location -q --upgrade pip
@@ -72,13 +75,13 @@ echo [3/4] Installiere Abhaengigkeiten...
 "%PYTHON%" -m pip install --no-warn-script-location -q waitress
 
 :: --- Verify flask installed ---
+echo [4/4] Pruefe Installation...
 "%PYTHON%" -c "import flask" >nul 2>&1
 if errorlevel 1 (
     echo [FEHLER] Flask konnte nicht installiert werden!
     goto :end
 )
 
-echo [4/4] Fertig!
 echo.
 echo ══════════════════════════════════════════════════════════════
 echo   Einrichtung abgeschlossen!
