@@ -74,31 +74,17 @@ echo       Gefunden: %PTH_FILE%
 
  
 
-:: Prüfe ob "import site" schon drin ist
+:: Schreibe die _pth Datei komplett neu (einfachste Loesung)
 
-findstr /C:"import site" "%PTH_FILE%" >nul 2>&1
+:: Das aktiviert site-packages korrekt
 
-if errorlevel 1 (
+echo python312.zip> "%PTH_FILE%"
 
-    echo import site>> "%PTH_FILE%"
+echo .>> "%PTH_FILE%"
 
-    echo       "import site" hinzugefuegt.
+echo import site>> "%PTH_FILE%"
 
-) else (
-
-    echo       "import site" bereits vorhanden.
-
-)
-
- 
-
-:: Zeige Inhalt der _pth Datei
-
-echo       Inhalt der _pth Datei:
-
-type "%PTH_FILE%"
-
-echo.
+echo       site-packages aktiviert.
 
  
 
@@ -124,27 +110,11 @@ echo       Fuehre get-pip.py aus...
 
  
 
-echo.
-
 echo       Teste pip...
 
 "%PYTHON%" -m pip --version
 
 if errorlevel 1 (
-
-    echo.
-
-    echo [DEBUG] pip funktioniert nicht. Pruefe Scripts-Ordner:
-
-    dir python\Scripts\ 2>nul
-
-    echo.
-
-    echo [DEBUG] Pruefe Lib\site-packages:
-
-    dir python\Lib\site-packages\ 2>nul
-
-    echo.
 
     echo [FEHLER] pip Installation fehlgeschlagen!
 
@@ -164,11 +134,11 @@ echo       pip ist bereit.
 
 echo [3/4] Installiere Abhaengigkeiten...
 
-"%PYTHON%" -m pip install --no-warn-script-location --upgrade pip
+"%PYTHON%" -m pip install --no-warn-script-location -q --upgrade pip
 
-"%PYTHON%" -m pip install --no-warn-script-location -r requirements.txt
+"%PYTHON%" -m pip install --no-warn-script-location -q -r requirements.txt
 
-"%PYTHON%" -m pip install --no-warn-script-location waitress
+"%PYTHON%" -m pip install --no-warn-script-location -q waitress
 
  
 
@@ -176,7 +146,7 @@ echo [3/4] Installiere Abhaengigkeiten...
 
 echo [4/4] Pruefe Installation...
 
-"%PYTHON%" -c "import flask; print('Flask', flask.__version__)"
+"%PYTHON%" -c "import flask; print('       Flask', flask.__version__)"
 
 if errorlevel 1 (
 
