@@ -2,18 +2,21 @@
 
 chcp 65001 >nul
 
-setlocal
-
+ 
 
 echo ══════════════════════════════════════════════════════════════
 
-echo   Vaccination Game - Ersteinrichtung
+echo   Impfspiel - Ersteinrichtung
 
 echo ══════════════════════════════════════════════════════════════
 
 echo.
 
+ 
+
 cd /d "%~dp0"
+
+ 
 
 :: --- Check if python folder exists ---
 
@@ -33,14 +36,15 @@ if not exist "python\python.exe" (
 
     echo.
 
-    pause
-
-    exit /b 1
+    goto :end
 
 )
 
  
-set PYTHON=%~dp0python\python.exe
+
+set "PYTHON=%~dp0python\python.exe"
+
+ 
 
 :: --- Enable site-packages in embedded Python ---
 
@@ -48,16 +52,17 @@ echo [1/4] Aktiviere site-packages...
 
  
 
-:: Finde die richtige .pth Datei (python312._pth oder python311._pth etc.)
+set "PTH_FILE="
 
-for %%f in (python\python*._pth) do (
-
-    set PTH_FILE=%%f
-
-)
+for %%f in (python\python*._pth) do set "PTH_FILE=%%f"
 
  
-if defined PTH_FILE (
+
+if "%PTH_FILE%"=="" (
+
+    echo       [WARNUNG] Keine ._pth Datei gefunden!
+
+) else (
 
     findstr /C:"import site" "%PTH_FILE%" >nul 2>&1
 
@@ -65,7 +70,7 @@ if defined PTH_FILE (
 
         echo import site>> "%PTH_FILE%"
 
-        echo       site-packages aktiviert in %PTH_FILE%
+        echo       site-packages aktiviert.
 
     ) else (
 
@@ -73,11 +78,9 @@ if defined PTH_FILE (
 
     )
 
-) else (
-
-    echo       [WARNUNG] Keine ._pth Datei gefunden!
-
 )
+
+ 
 
 :: --- Check if pip works ---
 
@@ -89,7 +92,7 @@ if errorlevel 1 (
 
     echo       pip nicht gefunden, installiere...
 
-    :: Download get-pip.py
+ 
 
     if not exist "get-pip.py" (
 
@@ -99,15 +102,15 @@ if errorlevel 1 (
 
     )
 
-    :: Install pip
+ 
+
+    echo       Installiere pip...
 
     "%PYTHON%" get-pip.py --no-warn-script-location
 
-    :: Cleanup
-
     del get-pip.py 2>nul
 
-    :: Verify
+ 
 
     "%PYTHON%" -m pip --version >nul 2>&1
 
@@ -115,9 +118,7 @@ if errorlevel 1 (
 
         echo [FEHLER] pip Installation fehlgeschlagen!
 
-        pause
-
-        exit /b 1
+        goto :end
 
     )
 
@@ -129,6 +130,8 @@ if errorlevel 1 (
 
 )
 
+ 
+
 :: --- Install dependencies ---
 
 echo [3/4] Installiere Abhaengigkeiten...
@@ -137,17 +140,23 @@ echo [3/4] Installiere Abhaengigkeiten...
 
 "%PYTHON%" -m pip install --no-warn-script-location -q -r requirements.txt
 
+"%PYTHON%" -m pip install --no-warn-script-location -q waitress
+
+ 
+
+:: --- Verify flask installed ---
+
+"%PYTHON%" -c "import flask" >nul 2>&1
+
 if errorlevel 1 (
 
-    echo [FEHLER] Abhaengigkeiten konnten nicht installiert werden!
+    echo [FEHLER] Flask konnte nicht installiert werden!
 
-    pause
-
-    exit /b 1
+    goto :end
 
 )
 
-"%PYTHON%" -m pip install --no-warn-script-location -q waitress
+ 
 
 echo [4/4] Fertig!
 
@@ -160,6 +169,12 @@ echo   Einrichtung abgeschlossen!
 echo   Starten Sie das Spiel mit: start.bat
 
 echo ══════════════════════════════════════════════════════════════
+
+echo.
+
+ 
+
+:end
 
 echo.
 
