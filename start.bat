@@ -41,12 +41,6 @@ set FLASK_DEBUG=0
 set PORT=8000
 set THREADS=48
 
-echo.
-echo ══════════════════════════════════════════════════════════════
-echo   ADMIN-PASSWORT (nur fuer diesen Serverstart):
-echo   %ADMIN_PASSWORD%
-echo ══════════════════════════════════════════════════════════════
-echo.
 
 :: --- Start server ---
 echo [2/4] Starte Server...
@@ -117,7 +111,7 @@ echo   ADMIN-PASSWORT: %ADMIN_PASSWORD%
 echo ══════════════════════════════════════════════════════════════
 echo.
 echo   Server laeuft. Dieses Fenster NICHT schliessen!
-echo   Zum Beenden: Fenster schliessen oder STRG+C
+echo   Zum Beenden: Fenster schliessen
 echo.
 
 :: Keep window open
