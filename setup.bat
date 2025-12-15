@@ -6,7 +6,7 @@ chcp 65001 >nul
 
 echo ══════════════════════════════════════════════════════════════
 
-echo   Impfspiel - Ersteinrichtung
+echo   Vaccination Game - Ersteinrichtung
 
 echo ══════════════════════════════════════════════════════════════
 
@@ -50,9 +50,6 @@ set "PYTHON=%~dp0python\python.exe"
 
 echo [1/4] Aktiviere site-packages...
 
- 
-
-:: Finde die ._pth Datei
 
 set "PTH_FILE="
 
@@ -72,11 +69,6 @@ if "%PTH_FILE%"=="" (
 
 echo       Gefunden: %PTH_FILE%
 
- 
-
-:: Schreibe die _pth Datei komplett neu (einfachste Loesung)
-
-:: Das aktiviert site-packages korrekt
 
 echo python312.zip> "%PTH_FILE%"
 

@@ -2,21 +2,15 @@
 
 chcp 65001 >nul
 
- 
-
 cd /d "%~dp0"
-
- 
 
 echo ══════════════════════════════════════════════════════════════
 
-echo   Impfspiel - Server starten
+echo   Vaccination Game - Server starten
 
 echo ══════════════════════════════════════════════════════════════
 
 echo.
-
- 
 
 :: --- Check embedded Python ---
 
@@ -32,8 +26,6 @@ if not exist "%PYTHON%" (
 
 )
 
- 
-
 :: --- Check if dependencies installed ---
 
 "%PYTHON%" -c "import flask" 2>nul
@@ -48,12 +40,9 @@ if errorlevel 1 (
 
 )
 
- 
-
 :: --- Generate secrets ---
 
 echo [1/4] Generiere Passwoerter...
-
 
 "%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(48))" > _tmp_secret.txt
 
@@ -61,15 +50,12 @@ set /p SECRET_KEY=<_tmp_secret.txt
 
 del _tmp_secret.txt
 
- 
-
 "%PYTHON%" -c "import secrets; print(secrets.token_urlsafe(16))" > _tmp_admin.txt
 
 set /p ADMIN_PASSWORD=<_tmp_admin.txt
 
 del _tmp_admin.txt
 
- 
 
 set FLASK_ENV=production
 
@@ -79,29 +65,11 @@ set PORT=8000
 
 set THREADS=48
 
- 
-
-echo.
-
-echo ══════════════════════════════════════════════════════════════
-
-echo   ADMIN-PASSWORT (nur fuer diesen Serverstart):
-
-echo   %ADMIN_PASSWORD%
-
-echo ══════════════════════════════════════════════════════════════
-
-echo.
-
- 
-
 :: --- Start server ---
 
 echo [2/4] Starte Server...
 
 start /b "" "%PYTHON%" "%~dp0serve_waitress.py"
-
- 
 
 :: --- Wait for health check ---
 
@@ -221,8 +189,6 @@ echo.
 
 echo   LOKAL: http://127.0.0.1:%PORT%
 
-echo   ADMIN: http://127.0.0.1:%PORT%/admin
-
 echo.
 
 echo   ADMIN-PASSWORT: %ADMIN_PASSWORD%
@@ -231,22 +197,60 @@ echo ═════════════════════════
 
 echo.
 
-echo   Server laeuft. Dieses Fenster NICHT schliessen!
+echo   Server laeuft.
 
-echo   Zum Beenden: Fenster schliessen oder STRG+C
+echo   Zum Beenden: "close server" eingeben oder Fenster schliessen
 
 echo.
 
  
 
-:: Keep window open
+:: --- Command loop ---
 
-cmd /k
+:cmd_loop
 
-exit /b 0
+set "CMD="
+
+set /p "CMD=> "
+
+if /i "%CMD%"=="close server" goto :shutdown
+
+echo   Unbekannter Befehl. Zum Beenden: "close server"
+
+goto :cmd_loop
 
  
 
+:shutdown
+
+echo.
+
+echo Fahre Server herunter...
+
+ 
+
+:: Stop cloudflared
+
+taskkill /f /im cloudflared.exe >nul 2>&1
+
+echo   Cloudflare Tunnel beendet.
+
+ 
+
+:: Stop Python server
+
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%.*LISTENING"') do taskkill /f /pid %%a >nul 2>&1
+
+echo   Server beendet.
+
+ 
+
+echo.
+
+echo Server wurde ordnungsgemaess beendet.
+
+echo Dieses Fenster kann jetzt geschlossen werden.
+ 
 :end
 
 echo.
