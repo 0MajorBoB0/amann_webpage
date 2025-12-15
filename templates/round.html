@@ -45,7 +45,7 @@
 
 <script>
 const sid = "{{ session.id }}";
-const roundNo = {{ round_number }};
+const roundNo = Number("{{ round_number }}");
 const decidedSpan = document.getElementById('decided');
 const decidedList = document.getElementById('decided_list');
 
@@ -59,7 +59,6 @@ async function sendChoice(choice) {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({choice})
     });
-    // Egal ob OK oder Already(409): sofort zur Warteseite
     if (r.ok || r.status === 409) {
       window.location = "{{ url_for('wait_view') }}";
       return;
@@ -70,7 +69,6 @@ async function sendChoice(choice) {
   }
 }
 
-// (Optional) Status unten weiter aktualisieren, solange man noch auf der Seite ist:
 async function poll() {
   try {
     const url = "{{ url_for('round_status') }}" + "?session_id=" + encodeURIComponent(sid) + "&round=" + roundNo;
@@ -84,7 +82,7 @@ async function poll() {
     if (data.ready) window.location = "{{ url_for('reveal') }}";
   } catch (e) {}
 }
-setInterval(poll, 1000);
+setInterval(poll, 2000);
 poll();
 </script>
 

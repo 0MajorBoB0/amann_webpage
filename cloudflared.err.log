@@ -18,9 +18,9 @@
 2025-12-14T09:03:57Z INF ICMP proxy will use 192.168.178.64 as source for IPv4
 2025-12-14T09:03:57Z INF ICMP proxy will use 2a02:8071:6590:5680:9b3c:521e:bd22:5f3c in zone WLAN as source for IPv6
 2025-12-14T09:03:57Z INF Starting metrics server on 127.0.0.1:20241/metrics
-2025-12-14T09:03:58Z INF Registered tunnel connection connIndex=0 connection=ab04af99-f89e-4f51-83e6-8cdfe94c6a86 event=0 ip=198.41.192.167 location=dus01 protocol=http2
-2025-12-14T09:15:51Z ERR  error="Incoming request ended abruptly: context canceled" connIndex=0 event=1 ingressRule=0 originService=http://127.0.0.1:8000
-2025-12-14T09:15:51Z ERR failed to serve incoming request error="Failed to proxy HTTP: Incoming request ended abruptly: context canceled"
+2025-12-14T09:03:58Z INF Registered tunnel connection connIndex=0 connection=ab04af99-f89e-4f51-83e6-8cdfe94c6a86 event=0 ip=198.41.192.167 location=dus01 protocol=http22025-12-15T08:48:42Z INF Initiating graceful shutdown due to signal terminated ...
+2025-12-15T08:48:43Z INF Unregistered tunnel connection connIndex=0 event=0 ip=198.41.200.33
+ERR failed to serve incoming request error="Failed to proxy HTTP: Incoming request ended abruptly: context canceled"
 2025-12-14T09:57:53Z ERR Failed to refresh DNS local resolver error="lookup region1.v2.argotunnel.com: i/o timeout"
 2025-12-14T09:58:04Z INF Lost connection with the edge connIndex=0
 2025-12-14T09:58:04Z WRN Serve tunnel error error="connection with edge closed" connIndex=0 event=0 ip=198.41.192.167

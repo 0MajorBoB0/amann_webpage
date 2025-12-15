@@ -1,0 +1,5 @@
+.runtime_flags.json
+cloudflared.out.log
+cloudflared.err.log
+cloudflared.*.log
+cloudflared.exe

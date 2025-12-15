@@ -17,7 +17,7 @@
 
 <script>
 const sid = "{{ session.id }}";
-const roundNo = {{ round_number }};
+const roundNo = Number("{{ round_number }}");
 const decidedSpan = document.getElementById('decided');
 
 async function poll() {
@@ -30,7 +30,7 @@ async function poll() {
     if (data.ready) window.location = "{{ url_for('reveal') }}";
   } catch (e) {}
 }
-setInterval(poll, 1000);
+setInterval(poll, 2000);
 poll();
 </script>
 

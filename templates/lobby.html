@@ -10,7 +10,7 @@ setInterval(async ()=>{
   const r = await fetch("/lobby_status?session_id={{ session['id'] }}"); const d = await r.json();
   document.getElementById('count').textContent = d.joined + "/" + d.group_size;
   if(d.ready) window.location.href = "/round";
-}, 1200);
+}, 2000);
 </script>
 {% endblock %}
 

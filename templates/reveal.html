@@ -22,7 +22,7 @@
 {% block scripts %}
 <script>
 const sid = "{{ session['id'] }}";
-const r   = {{ round_number }};
+const r   = Number("{{ round_number }}");
 const tEl = document.getElementById('timer');
 const tbody = document.getElementById('tbody');
 
@@ -52,7 +52,7 @@ function tick(endsAtIso){
     const s = Math.max(0, Math.floor((end - Date.now())/1000));
     tEl.textContent = s + " s";
     if(s<=0){ clearInterval(id); window.location.href = "/feedback"; }
-  }, 250);
+  }, 2000);
 }
 
 load();

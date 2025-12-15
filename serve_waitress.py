@@ -2,7 +2,6 @@ from app import app, init_db
 from waitress import serve
 import os
 
-# Ensure DB schema / indices exist even when running under waitress
 init_db()
 
 port = int(os.environ.get("PORT", "8000"))
