@@ -116,8 +116,6 @@ echo.
 set "CMD="
 set /p "CMD=> "
 if /i "%CMD%"=="close server" goto :shutdown
-if /i "%CMD%"=="exit" goto :shutdown
-if /i "%CMD%"=="quit" goto :shutdown
 if /i "%CMD%"=="stop" goto :shutdown
 echo   Unbekannter Befehl. Zum Beenden: "close server"
 goto :cmd_loop
