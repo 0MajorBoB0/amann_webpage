@@ -52,6 +52,8 @@ echo [1/4] Aktiviere site-packages...
 
  
 
+:: Finde die ._pth Datei
+
 set "PTH_FILE="
 
 for %%f in (python\python*._pth) do set "PTH_FILE=%%f"
@@ -60,75 +62,101 @@ for %%f in (python\python*._pth) do set "PTH_FILE=%%f"
 
 if "%PTH_FILE%"=="" (
 
-    echo       [WARNUNG] Keine ._pth Datei gefunden!
+    echo       [FEHLER] Keine ._pth Datei gefunden!
 
-) else (
-
-    findstr /C:"import site" "%PTH_FILE%" >nul 2>&1
-
-    if errorlevel 1 (
-
-        echo import site>> "%PTH_FILE%"
-
-        echo       site-packages aktiviert.
-
-    ) else (
-
-        echo       bereits aktiviert.
-
-    )
+    goto :end
 
 )
 
  
 
-:: --- Check if pip works ---
+echo       Gefunden: %PTH_FILE%
 
-echo [2/4] Pruefe pip...
+ 
 
-"%PYTHON%" -m pip --version >nul 2>&1
+:: Prüfe ob "import site" schon drin ist
+
+findstr /C:"import site" "%PTH_FILE%" >nul 2>&1
 
 if errorlevel 1 (
 
-    echo       pip nicht gefunden, installiere...
+    echo import site>> "%PTH_FILE%"
 
- 
-
-    if not exist "get-pip.py" (
-
-        echo       Lade get-pip.py herunter...
-
-        powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile 'get-pip.py'"
-
-    )
-
- 
-
-    echo       Installiere pip...
-
-    "%PYTHON%" get-pip.py --no-warn-script-location
-
-    del get-pip.py 2>nul
-
- 
-
-    "%PYTHON%" -m pip --version >nul 2>&1
-
-    if errorlevel 1 (
-
-        echo [FEHLER] pip Installation fehlgeschlagen!
-
-        goto :end
-
-    )
-
-    echo       pip erfolgreich installiert.
+    echo       "import site" hinzugefuegt.
 
 ) else (
 
-    echo       pip ist bereit.
+    echo       "import site" bereits vorhanden.
 
 )
+
+ 
+
+:: Zeige Inhalt der _pth Datei
+
+echo       Inhalt der _pth Datei:
+
+type "%PTH_FILE%"
+
+echo.
+
+ 
+
+:: --- Install pip ---
+
+echo [2/4] Installiere pip...
+
+ 
+
+if not exist "get-pip.py" (
+
+    echo       Lade get-pip.py herunter...
+
+    powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile 'get-pip.py'"
+
+)
+
+ 
+
+echo       Fuehre get-pip.py aus...
+
+"%PYTHON%" get-pip.py --no-warn-script-location
+
+ 
+
+echo.
+
+echo       Teste pip...
+
+"%PYTHON%" -m pip --version
+
+if errorlevel 1 (
+
+    echo.
+
+    echo [DEBUG] pip funktioniert nicht. Pruefe Scripts-Ordner:
+
+    dir python\Scripts\ 2>nul
+
+    echo.
+
+    echo [DEBUG] Pruefe Lib\site-packages:
+
+    dir python\Lib\site-packages\ 2>nul
+
+    echo.
+
+    echo [FEHLER] pip Installation fehlgeschlagen!
+
+    goto :end
+
+)
+
+ 
+
+del get-pip.py 2>nul
+
+echo       pip ist bereit.
 
  
 
@@ -136,17 +164,19 @@ if errorlevel 1 (
 
 echo [3/4] Installiere Abhaengigkeiten...
 
-"%PYTHON%" -m pip install --no-warn-script-location -q --upgrade pip
+"%PYTHON%" -m pip install --no-warn-script-location --upgrade pip
 
-"%PYTHON%" -m pip install --no-warn-script-location -q -r requirements.txt
+"%PYTHON%" -m pip install --no-warn-script-location -r requirements.txt
 
-"%PYTHON%" -m pip install --no-warn-script-location -q waitress
+"%PYTHON%" -m pip install --no-warn-script-location waitress
 
  
 
 :: --- Verify flask installed ---
 
-"%PYTHON%" -c "import flask" >nul 2>&1
+echo [4/4] Pruefe Installation...
+
+"%PYTHON%" -c "import flask; print('Flask', flask.__version__)"
 
 if errorlevel 1 (
 
@@ -158,8 +188,6 @@ if errorlevel 1 (
 
  
 
-echo [4/4] Fertig!
-
 echo.
 
 echo ══════════════════════════════════════════════════════════════
@@ -169,8 +197,6 @@ echo   Einrichtung abgeschlossen!
 echo   Starten Sie das Spiel mit: start.bat
 
 echo ══════════════════════════════════════════════════════════════
-
-echo.
 
  
 
