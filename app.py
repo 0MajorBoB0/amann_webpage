@@ -166,6 +166,7 @@ def init_db():
     ensure_column(con, "participants", "join_number", "INTEGER")
     ensure_column(con, "participants", "completed", "INTEGER DEFAULT 0")
     ensure_column(con, "participants", "ptype", "INTEGER")
+    ensure_column(con, "participants", "ready_for_next", "INTEGER DEFAULT 0")
     ensure_column(con, "sessions", "archived", "INTEGER DEFAULT 0")
     ensure_column(con, "sessions", "reveal_window", "INTEGER DEFAULT 5")
     ensure_column(con, "sessions", "watch_time", "INTEGER DEFAULT 15")
@@ -238,19 +239,33 @@ def current_state(con, p, s) -> str:
     if joined < s["group_size"]:
         return "lobby"
 
-    if p["current_round"] > s["rounds"]:
-        return "done"
-
     r = p["current_round"]
 
-    if r > 1:
-        ph_prev = con.execute(
-            "SELECT watch_ends_at FROM round_phases WHERE session_id=? AND round_number=?",
-            (s["id"], r-1)
-        ).fetchone()
-        if ph_prev and utc_now() < parse_iso_utc(ph_prev["watch_ends_at"]):
+    # After last round: show reveal until all confirm, then done
+    if r > s["rounds"]:
+        all_ready = con.execute(
+            "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
+            (s["id"],)
+        ).fetchone()["c"] >= s["group_size"]
+
+        if all_ready:
+            return "done"
+        else:
             return "reveal"
 
+    # If round > 1, check if we're still showing results from previous round
+    # Players must confirm readiness before moving to next round
+    if r > 1:
+        all_ready = con.execute(
+            "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
+            (s["id"],)
+        ).fetchone()["c"] >= s["group_size"]
+
+        if not all_ready:
+            # Still waiting for all players to confirm, stay in reveal
+            return "reveal"
+
+    # All ready (or round 1), proceed with normal round logic
     decided = con.execute(
         "SELECT 1 FROM decisions WHERE participant_id=? AND round_number=?", (p["id"], r)
     ).fetchone()
@@ -262,9 +277,8 @@ def current_state(con, p, s) -> str:
     ).fetchone()
     if not ph: return "wait"
 
-    if utc_now() < parse_iso_utc(ph["watch_ends_at"]):
-        return "reveal"
-    return "feedback"
+    # Round finalized (phase exists), show reveal
+    return "reveal"
 
 def state_to_url(state: str) -> str:
     return {
@@ -376,8 +390,9 @@ def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
             con.execute("UPDATE participants SET balance=? WHERE id=?", (payout, pid))
 
         # Safe even if called twice: second call won't match current_round anymore.
+        # Also reset ready_for_next so players must confirm again for the next round
         con.execute(
-            "UPDATE participants SET current_round = current_round + 1 WHERE session_id=? AND current_round=?",
+            "UPDATE participants SET current_round = current_round + 1, ready_for_next = 0 WHERE session_id=? AND current_round=?",
             (sid, r)
         )
 
@@ -611,7 +626,8 @@ def reveal():
     s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
     r = p["current_round"] - 1
     if r < 1: return redirect(url_for("round_view"))
-    return render_template("reveal.html", session=s, round_number=r)
+    is_last_round = (p["current_round"] > s["rounds"])
+    return render_template("reveal.html", session=s, round_number=r, is_last_round=is_last_round)
 
 @app.get("/reveal_status")
 def reveal_status():
@@ -674,6 +690,55 @@ def reveal_status():
         ends_at = iso_utc(utc_now())
 
     return jsonify({"phase": phase, "ends_at": ends_at, "total": len(players), "players": players, "me": me})
+
+# ---------- Ready Confirmation ----------
+@app.post("/confirm_ready")
+def confirm_ready():
+    """Player confirms they are ready for the next round."""
+    if not g.participant:
+        return ("No participant", 400)
+    con = db()
+    p = g.participant
+    con.execute("UPDATE participants SET ready_for_next=1 WHERE id=?", (p["id"],))
+    con.commit()
+    return jsonify({"ok": True})
+
+@app.get("/ready_status")
+def ready_status():
+    """Returns status of who is ready for the next round."""
+    sid = request.args.get("session_id")
+    con = db()
+    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    if not s:
+        return jsonify({"err": "unknown_session"}), 404
+
+    rows = con.execute(
+        """SELECT p.id, p.join_number, p.ready_for_next
+           FROM participants p WHERE p.session_id=? ORDER BY p.join_number""",
+        (sid,)
+    ).fetchall()
+
+    ready_count = sum(1 for r in rows if r["ready_for_next"])
+    all_ready = ready_count >= s["group_size"]
+
+    players = []
+    me_ready = False
+    for row in rows:
+        is_ready = bool(row["ready_for_next"])
+        players.append({
+            "player_no": row["join_number"],
+            "ready": is_ready
+        })
+        if g.participant and row["id"] == g.participant["id"]:
+            me_ready = is_ready
+
+    return jsonify({
+        "ready_count": ready_count,
+        "group_size": s["group_size"],
+        "all_ready": all_ready,
+        "me_ready": me_ready,
+        "players": players
+    })
 
 # ---------- Feedback ----------
 @app.route("/feedback")
@@ -867,7 +932,7 @@ def admin_session_status():
     r_disp = min(r, srow["rounds"])
 
     rows = con.execute(
-        """SELECT p.id, p.code, p.join_number, p.balance, p.current_round,
+        """SELECT p.id, p.code, p.join_number, p.balance, p.current_round, p.ready_for_next,
                   EXISTS(SELECT 1 FROM decisions d WHERE d.participant_id=p.id AND d.round_number=?) AS decided,
                   (SELECT d.choice FROM decisions d WHERE d.participant_id=p.id AND d.round_number=? LIMIT 1) AS choice
            FROM participants p WHERE p.session_id=? ORDER BY p.join_number, p.code""",
@@ -881,13 +946,16 @@ def admin_session_status():
         "balance": rr["balance"],
         "round_display": min(rr["current_round"], srow["rounds"]),
         "decided": bool(rr["decided"]),
-        "choice": rr["choice"]
+        "choice": rr["choice"],
+        "ready_for_next": bool(rr["ready_for_next"])
     } for rr in rows]
 
     decided_count = sum(1 for x in participants if x["decided"])
+    ready_count = sum(1 for x in participants if x["ready_for_next"])
     return jsonify({
         "participants": participants,
         "decided_count": decided_count,
+        "ready_count": ready_count,
         "session": {"id": srow["id"], "current_round": r_disp}
     })
 
@@ -904,7 +972,7 @@ def admin_reset_session():
     con.execute("DELETE FROM decisions WHERE session_id=?", (sid,))
     con.execute("DELETE FROM round_phases WHERE session_id=?", (sid,))
     con.execute(
-        "UPDATE participants SET current_round=1, join_number=NULL, joined=0, balance=?, completed=0 WHERE session_id=?",
+        "UPDATE participants SET current_round=1, join_number=NULL, joined=0, balance=?, completed=0, ready_for_next=0 WHERE session_id=?",
         (s["starting_balance"], sid)
     )
     con.commit()
@@ -1010,15 +1078,15 @@ def admin_export_session_xlsx():
     _style_table(ws0, header_row=1, wrap_cols=[7,8], int_cols=[3,4,5,6])
 
     ws1 = wb.create_sheet("Participants")
-    ws1.append(["player_no","code","ptype","joined","current_round","balance","completed","created_at"])
+    ws1.append(["player_no","code","ptype","joined","current_round","balance","completed","ready_for_next","created_at"])
     for p in con.execute(
-        "SELECT join_number, code, ptype, joined, current_round, balance, completed, created_at "
+        "SELECT join_number, code, ptype, joined, current_round, balance, completed, ready_for_next, created_at "
         "FROM participants WHERE session_id=? ORDER BY join_number, code",
         (sid,)
     ):
         ws1.append([p["join_number"], p["code"], p["ptype"], p["joined"],
-                    p["current_round"], p["balance"], p["completed"], p["created_at"]])
-    _style_table(ws1, header_row=1, wrap_cols=[8], int_cols=[1,3,4,5,6,7])
+                    p["current_round"], p["balance"], p["completed"], p["ready_for_next"], p["created_at"]])
+    _style_table(ws1, header_row=1, wrap_cols=[9], int_cols=[1,3,4,5,6,7,8])
 
     ws2 = wb.create_sheet("Decisions")
     ws2.append(["round","player_no","code","ptype","choice","a_cost","b_cost","total_cost",
