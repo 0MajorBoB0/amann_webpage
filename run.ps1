@@ -121,7 +121,7 @@ Write-Host ""
 
 # --- start server ---
 $PORT = 8000
-$THREADS = 16
+$THREADS = 48
 $env:PORT = "$PORT"
 $env:THREADS = "$THREADS"
 

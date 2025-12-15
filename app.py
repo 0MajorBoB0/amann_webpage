@@ -67,7 +67,10 @@ def _connect_sqlite():
     c = sqlite3.connect(DB_PATH, check_same_thread=False)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL;")
-    c.execute("PRAGMA busy_timeout=8000;")
+    c.execute("PRAGMA busy_timeout=15000;")      # 15s timeout für 150 Spieler
+    c.execute("PRAGMA synchronous=NORMAL;")      # Schneller, WAL schützt trotzdem
+    c.execute("PRAGMA cache_size=-64000;")       # 64MB Cache
+    c.execute("PRAGMA temp_store=MEMORY;")       # Temp-Tabellen im RAM
     c.execute("PRAGMA foreign_keys=ON;")
     return c
 
