@@ -135,8 +135,9 @@ echo   Server beendet.
 echo.
 echo Server wurde ordnungsgemaess beendet.
 echo.
-pause
-exit /b 0
+echo Fenster schliesst in 3 Sekunden...
+timeout /t 3 >nul
+exit
 
 :end
 echo.
