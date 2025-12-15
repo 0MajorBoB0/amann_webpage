@@ -8,14 +8,16 @@
     <a class="btn" href="{{ url_for('admin') }}">← Zurück</a>
     <a class="btn btn-primary" href="{{ url_for('admin_export_session_xlsx') }}?session_id={{ session.id }}">⬇ Download (.xlsx)</a>
     <div class="muted" style="margin-left:auto;">
-      N={{ session.group_size }}, R={{ session.rounds }}, M={{ session.starting_balance }}, watch={{ session.watch_time }}s
+      N={{ session.group_size }}, R={{ session.rounds }}, M={{ session.starting_balance }}
     </div>
   </div>
 
   <section class="card">
     <h3>Live-Status</h3>
-    <div class="muted tiny">Runde: <span id="round_disp">{{ round_number }}</span> •
-      Entschieden: <span id="decided_count">0</span>/<span id="group_size">{{ session.group_size }}</span>
+    <div class="muted tiny">
+      Runde: <span id="round_disp">{{ round_number }}</span> •
+      Entschieden: <span id="decided_count">0</span>/<span id="group_size">{{ session.group_size }}</span> •
+      Bereit für nächste Runde: <span id="ready_count">0</span>/<span id="group_size2">{{ session.group_size }}</span>
     </div>
 
     <div class="table-wrap" style="margin-top:.75rem;">
@@ -27,6 +29,7 @@
             <th>Runde</th>
             <th>Entschieden</th>
             <th>Wahl</th>
+            <th>Bereit</th>
             <th>Letzte Auszahlung (Runde)</th>
           </tr>
         </thead>
@@ -40,6 +43,7 @@
 const sid = "{{ session.id }}";
 const rowsTbody = document.getElementById('rows');
 const decidedCountSpan = document.getElementById('decided_count');
+const readyCountSpan = document.getElementById('ready_count');
 const roundDisp = document.getElementById('round_disp');
 const groupSize = {{ session.group_size }};
 
@@ -51,6 +55,7 @@ async function poll() {
     const data = await r.json();
 
     decidedCountSpan.textContent = data.decided_count ?? 0;
+    readyCountSpan.textContent = data.ready_count ?? 0;
     roundDisp.textContent = data.session?.current_round ?? '{{ round_number }}';
 
     rowsTbody.innerHTML = "";
@@ -62,6 +67,7 @@ async function poll() {
         <td>${p.round_display}</td>
         <td>${p.decided ? "✓" : "–"}</td>
         <td>${p.choice ?? "–"}</td>
+        <td class="${p.ready_for_next ? 'ready-yes' : ''}">${p.ready_for_next ? "✓" : "–"}</td>
         <td>${(p.balance ?? "")}</td>
       `;
       rowsTbody.appendChild(tr);
@@ -83,5 +89,6 @@ poll();
 .table th, .table td { padding:.55rem .6rem; border-bottom:1px solid #1e2b43; text-align:left; }
 .tiny { font-size:.9rem; }
 .muted { color:#aab7d4; }
+.ready-yes { color:#4ade80; font-weight:bold; }
 </style>
 {% endblock %}
