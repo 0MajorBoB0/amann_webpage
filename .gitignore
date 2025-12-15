@@ -4,3 +4,14 @@ __pycache__/
 *.log
 *.db
 .secrets.ps1
+
+# Embedded Python (zu groß für Git)
+python/
+
+# Cloudflare Tunnel
+cloudflared.exe
+cloudflared.log
+cloudflared.*.log
+
+# Backups
+backups/
