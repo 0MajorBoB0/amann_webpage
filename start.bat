@@ -130,8 +130,8 @@ echo Fahre Server herunter...
 taskkill /f /im cloudflared.exe >nul 2>&1
 echo   Cloudflare Tunnel beendet.
 
-:: Stop Python server
-taskkill /f /im python.exe >nul 2>&1
+:: Stop Python server (nur der Prozess auf Port 8000)
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%.*LISTENING"') do taskkill /f /pid %%a >nul 2>&1
 echo   Server beendet.
 
 echo.
