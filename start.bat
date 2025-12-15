@@ -4,7 +4,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ══════════════════════════════════════════════════════════════
-echo   Impfspiel - Server starten
+echo   Vaccination Game - Server starten
 echo ══════════════════════════════════════════════════════════════
 echo.
 
@@ -103,7 +103,6 @@ if defined PUBLIC_URL (
 )
 echo.
 echo   LOKAL: http://127.0.0.1:%PORT%
-echo   ADMIN: http://127.0.0.1:%PORT%/admin
 echo.
 echo   ADMIN-PASSWORT: %ADMIN_PASSWORD%
 echo ══════════════════════════════════════════════════════════════
@@ -134,18 +133,6 @@ echo   Cloudflare Tunnel beendet.
 :: Stop Python server
 taskkill /f /im python.exe >nul 2>&1
 echo   Server beendet.
-
-:: Backup database
-echo   Erstelle Backup...
-if exist "game.db" (
-    if not exist "backups" mkdir backups
-    for /f "tokens=2 delims==" %%a in ('wmic OS Get localdatetime /value') do set "dt=%%a"
-    set "BACKUP_NAME=backups\game_%dt:~0,8%_%dt:~8,6%.db"
-    copy "game.db" "%BACKUP_NAME%" >nul 2>&1
-    echo   Backup erstellt.
-) else (
-    echo   Keine Datenbank vorhanden.
-)
 
 echo.
 echo Server wurde ordnungsgemaess beendet.
