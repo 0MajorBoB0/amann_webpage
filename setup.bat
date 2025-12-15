@@ -36,19 +36,12 @@ if "%PTH_FILE%"=="" (
 
 echo       Gefunden: %PTH_FILE%
 
-:: Prüfe ob "import site" schon drin ist
-findstr /C:"import site" "%PTH_FILE%" >nul 2>&1
-if errorlevel 1 (
-    echo import site>> "%PTH_FILE%"
-    echo       "import site" hinzugefuegt.
-) else (
-    echo       "import site" bereits vorhanden.
-)
-
-:: Zeige Inhalt der _pth Datei
-echo       Inhalt der _pth Datei:
-type "%PTH_FILE%"
-echo.
+:: Schreibe die _pth Datei komplett neu (einfachste Loesung)
+:: Das aktiviert site-packages korrekt
+echo python312.zip> "%PTH_FILE%"
+echo .>> "%PTH_FILE%"
+echo import site>> "%PTH_FILE%"
+echo       site-packages aktiviert.
 
 :: --- Install pip ---
 echo [2/4] Installiere pip...
@@ -61,17 +54,9 @@ if not exist "get-pip.py" (
 echo       Fuehre get-pip.py aus...
 "%PYTHON%" get-pip.py --no-warn-script-location
 
-echo.
 echo       Teste pip...
 "%PYTHON%" -m pip --version
 if errorlevel 1 (
-    echo.
-    echo [DEBUG] pip funktioniert nicht. Pruefe Scripts-Ordner:
-    dir python\Scripts\ 2>nul
-    echo.
-    echo [DEBUG] Pruefe Lib\site-packages:
-    dir python\Lib\site-packages\ 2>nul
-    echo.
     echo [FEHLER] pip Installation fehlgeschlagen!
     goto :end
 )
@@ -81,13 +66,13 @@ echo       pip ist bereit.
 
 :: --- Install dependencies ---
 echo [3/4] Installiere Abhaengigkeiten...
-"%PYTHON%" -m pip install --no-warn-script-location --upgrade pip
-"%PYTHON%" -m pip install --no-warn-script-location -r requirements.txt
-"%PYTHON%" -m pip install --no-warn-script-location waitress
+"%PYTHON%" -m pip install --no-warn-script-location -q --upgrade pip
+"%PYTHON%" -m pip install --no-warn-script-location -q -r requirements.txt
+"%PYTHON%" -m pip install --no-warn-script-location -q waitress
 
 :: --- Verify flask installed ---
 echo [4/4] Pruefe Installation...
-"%PYTHON%" -c "import flask; print('Flask', flask.__version__)"
+"%PYTHON%" -c "import flask; print('       Flask', flask.__version__)"
 if errorlevel 1 (
     echo [FEHLER] Flask konnte nicht installiert werden!
     goto :end
