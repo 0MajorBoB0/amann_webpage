@@ -67,10 +67,10 @@ def _connect_sqlite():
     c = sqlite3.connect(DB_PATH, check_same_thread=False)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL;")
-    c.execute("PRAGMA busy_timeout=15000;") 
-    c.execute("PRAGMA synchronous=NORMAL;")   
-    c.execute("PRAGMA cache_size=-64000;")      
-    c.execute("PRAGMA temp_store=MEMORY;")  
+    c.execute("PRAGMA busy_timeout=15000;")
+    c.execute("PRAGMA synchronous=NORMAL;")
+    c.execute("PRAGMA cache_size=-64000;")
+    c.execute("PRAGMA temp_store=MEMORY;")
     c.execute("PRAGMA foreign_keys=ON;")
     return c
 
@@ -240,7 +240,6 @@ def current_state(con, p, s) -> str:
 
     r = p["current_round"]
 
-    # After last round: show reveal until all confirm, then done
     if r > s["rounds"]:
         all_ready = con.execute(
             "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
@@ -252,8 +251,6 @@ def current_state(con, p, s) -> str:
         else:
             return "reveal"
 
-    # If round > 1, check if we're still showing results from previous round
-    # Players must confirm readiness before moving to next round
     if r > 1:
         all_ready = con.execute(
             "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
@@ -261,10 +258,8 @@ def current_state(con, p, s) -> str:
         ).fetchone()["c"] >= s["group_size"]
 
         if not all_ready:
-            # Still waiting for all players to confirm, stay in reveal
             return "reveal"
 
-    # All ready (or round 1), proceed with normal round logic
     decided = con.execute(
         "SELECT 1 FROM decisions WHERE participant_id=? AND round_number=?", (p["id"], r)
     ).fetchone()
@@ -276,7 +271,6 @@ def current_state(con, p, s) -> str:
     ).fetchone()
     if not ph: return "wait"
 
-    # Round finalized (phase exists), show reveal
     return "reveal"
 
 def state_to_url(state: str) -> str:
@@ -306,16 +300,7 @@ def guard(expect_state: str):
 
 # -------------------- Round finalization (atomic) --------------------
 def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
-    """
-    Atomically finalizes a round exactly once.
 
-    Game mechanics unchanged:
-    - same cost calculations
-    - payout = max(M - cost, 0)
-    - participants.balance set to payout (per-round reset)
-    - participants.current_round incremented
-    - round_phases created
-    """
     con.execute("BEGIN IMMEDIATE")
 
     try:
@@ -475,6 +460,7 @@ def lobby():
 @app.get("/lobby_status")
 def lobby_status():
     sid = request.args.get("session_id")
+    pid = request.args.get("participant_id")
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
     if not s:
@@ -483,7 +469,14 @@ def lobby_status():
         "SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1",
         (sid,)
     ).fetchone()["c"]
-    return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"]})
+
+    reset = False
+    if pid:
+        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        if p and not p["joined"]:
+            reset = True
+
+    return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"], "reset": reset})
 
 # ---------- Round ----------
 @app.route("/round")
@@ -510,7 +503,8 @@ def round_view():
         b_list=b_list,
         others_max=others_max,
         base_payout=int(s["starting_balance"] or 500),
-        balance_current=int(s["starting_balance"] or 500)
+        balance_current=int(s["starting_balance"] or 500),
+        participant=p
     )
 
 @app.post("/choose")
@@ -551,16 +545,25 @@ def wait_view():
         "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
         (s["id"], r)
     ).fetchone()["c"]
-    return render_template("wait.html", session=s, round_number=r, decided=decided)
+    return render_template("wait.html", session=s, round_number=r, decided=decided, participant=p)
 
 @app.get("/round_status")
 def round_status():
     sid = request.args.get("session_id")
     r = int(request.args.get("round"))
+    pid = request.args.get("participant_id")
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
     if not s:
         return jsonify({"err": "unknown_session"}), 404
+
+    reset = False
+    if pid:
+        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        if p and not p["joined"]:
+            reset = True
+    if reset:
+        return jsonify({"reset": True})
 
     decided = con.execute(
         "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
@@ -619,7 +622,7 @@ def reveal():
     r = p["current_round"] - 1
     if r < 1: return redirect(url_for("round_view"))
     is_last_round = (p["current_round"] > s["rounds"])
-    return render_template("reveal.html", session=s, round_number=r, is_last_round=is_last_round)
+    return render_template("reveal.html", session=s, round_number=r, participant=p, is_last_round=is_last_round)
 
 @app.get("/reveal_status")
 def reveal_status():
@@ -699,10 +702,19 @@ def confirm_ready():
 def ready_status():
     """Returns status of who is ready for the next round."""
     sid = request.args.get("session_id")
+    pid = request.args.get("participant_id")
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
     if not s:
         return jsonify({"err": "unknown_session"}), 404
+
+    reset = False
+    if pid:
+        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        if p and not p["joined"]:
+            reset = True
+    if reset:
+        return jsonify({"reset": True})
 
     rows = con.execute(
         """SELECT p.id, p.join_number, p.ready_for_next

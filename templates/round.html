@@ -45,10 +45,10 @@
 
 <script>
 const sid = "{{ session.id }}";
+const pid = "{{ participant.id }}";
 const roundNo = Number("{{ round_number }}");
 const decidedSpan = document.getElementById('decided');
 const decidedList = document.getElementById('decided_list');
-
 document.getElementById('btnA').onclick = () => sendChoice('A');
 document.getElementById('btnB').onclick = () => sendChoice('B');
 
@@ -59,22 +59,36 @@ async function sendChoice(choice) {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({choice})
     });
+
     if (r.ok || r.status === 409) {
       window.location = "{{ url_for('wait_view') }}";
       return;
     }
+
     alert("Senden fehlgeschlagen.");
+
   } catch (e) {
     alert("Netzwerkfehler.");
   }
 }
 
+ 
+
 async function poll() {
+
   try {
-    const url = "{{ url_for('round_status') }}" + "?session_id=" + encodeURIComponent(sid) + "&round=" + roundNo;
+
+    const url = "{{ url_for('round_status') }}" + "?session_id=" + encodeURIComponent(sid) + "&round=" + roundNo + "&participant_id=" + encodeURIComponent(pid);
     const r = await fetch(url);
+
     if (!r.ok) return;
+
     const data = await r.json();
+
+    if (data.reset) {
+      window.location.href = "/join";
+      return;
+    }
     decidedSpan.textContent = data.decided ?? 0;
     decidedList.textContent = (data.decided_players && data.decided_players.length)
       ? data.decided_players.join(", ")
@@ -82,6 +96,7 @@ async function poll() {
     if (data.ready) window.location = "{{ url_for('reveal') }}";
   } catch (e) {}
 }
+
 setInterval(poll, 2000);
 poll();
 </script>

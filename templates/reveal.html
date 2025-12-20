@@ -44,6 +44,7 @@
 {% block scripts %}
 <script>
 const sid = "{{ session['id'] }}";
+const pid = "{{ participant['id'] }}";
 const r   = Number("{{ round_number }}");
 const isLastRound = {{ 'true' if is_last_round else 'false' }};
 const tbody = document.getElementById('tbody');
@@ -57,9 +58,13 @@ function fmt(x){ return Number(x||0).toFixed(0); }
 
 // Load round results once
 async function loadResults(){
-  const res = await fetch(`/round_status?session_id=${sid}&round=${r}`);
+  const res = await fetch(`/round_status?session_id=${sid}&round=${r}&participant_id=${pid}`);
   if(!res.ok) return;
   const d = await res.json();
+  if (d.reset) {
+    window.location.href = "/join";
+    return;
+  }
   tbody.innerHTML = '';
   (d.players||[]).forEach(p=>{
     const tr = document.createElement('tr');
@@ -87,9 +92,14 @@ async function confirmReady(){
 // Poll ready status
 async function pollReady(){
   try {
-    const res = await fetch(`/ready_status?session_id=${sid}`);
+    const res = await fetch(`/ready_status?session_id=${sid}&participant_id=${pid}`);
     if(!res.ok) return;
     const d = await res.json();
+
+    if (d.reset) {
+      window.location.href = "/join";
+      return;
+    }
 
     readyCountEl.textContent = d.ready_count;
     groupSizeEl.textContent = d.group_size;
