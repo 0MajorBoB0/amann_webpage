@@ -29,6 +29,7 @@ app = Flask(
 
 app.secret_key = must_get_env("SECRET_KEY")
 
+# Session expires when browser closes - user must re-enter code
 app.config["SESSION_PERMANENT"] = False
 
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "0") == "1"
@@ -77,15 +78,8 @@ def _connect_sqlite():
     return c
 
 def db():
-    """
-    SQLite connection helper.
-
-    - Outside a Flask request context (e.g., init_db): returns a standalone connection.
-    - Inside a request: reuses one connection stored on flask.g and closes it on teardown.
-    """
     if not has_app_context():
         return _connect_sqlite()
-
     if "db" not in g:
         g.db = _connect_sqlite()
     return g.db
@@ -119,7 +113,6 @@ def ensure_archive_schema(con, base_table):
                 con.execute(f"ALTER TABLE {arch_table} ADD COLUMN {name} {coltype} DEFAULT {dflt}")
     con.commit()
 
-# ---------- UTC helpers (aware) ----------
 def utc_now():
     return datetime.datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -200,7 +193,6 @@ def init_db():
     ensure_archive_schema(con, "participants")
     ensure_archive_schema(con, "decisions")
 
-    # Performance / integrity indices
     con.execute("CREATE INDEX IF NOT EXISTS idx_decisions_session_round ON decisions(session_id, round_number)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_decisions_participant_round ON decisions(participant_id, round_number)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id)")
@@ -247,7 +239,6 @@ def current_state(con, p, s) -> str:
             "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
             (s["id"],)
         ).fetchone()["c"] >= s["group_size"]
-
         if all_ready:
             return "done"
         else:
@@ -258,7 +249,6 @@ def current_state(con, p, s) -> str:
             "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
             (s["id"],)
         ).fetchone()["c"] >= s["group_size"]
-
         if not all_ready:
             return "reveal"
 
@@ -302,9 +292,7 @@ def guard(expect_state: str):
 
 # -------------------- Round finalization (atomic) --------------------
 def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
-
     con.execute("BEGIN IMMEDIATE")
-
     try:
         decided = con.execute(
             "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
@@ -369,7 +357,6 @@ def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
                     did
                 )
             )
-
             con.execute("UPDATE participants SET balance=? WHERE id=?", (payout, pid))
 
         con.execute(
@@ -385,9 +372,7 @@ def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
                VALUES (?,?,?,?,?)""",
             (sid, r, iso_utc(now), iso_utc(now + timedelta(seconds=sec)), iso_utc(now))
         )
-
         con.commit()
-
     except Exception:
         try:
             con.execute("ROLLBACK")
@@ -481,7 +466,6 @@ def lobby_status():
 
     return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"], "reset": reset})
 
-# ---------- Round ----------
 @app.route("/round")
 @guard("round")
 def round_view():
@@ -615,7 +599,6 @@ def round_status():
         "players": players_payload
     })
 
-# ---------- Reveal ----------
 @app.route("/reveal")
 @guard("reveal")
 def reveal():
@@ -689,10 +672,8 @@ def reveal_status():
 
     return jsonify({"phase": phase, "ends_at": ends_at, "total": len(players), "players": players, "me": me})
 
-# ---------- Ready Confirmation ----------
 @app.post("/confirm_ready")
 def confirm_ready():
-    """Player confirms they are ready for the next round."""
     if not g.participant:
         return ("No participant", 400)
     con = db()
@@ -703,7 +684,6 @@ def confirm_ready():
 
 @app.get("/ready_status")
 def ready_status():
-    """Returns status of who is ready for the next round."""
     sid = request.args.get("session_id")
     pid = request.args.get("participant_id")
     con = db()
@@ -747,7 +727,6 @@ def ready_status():
         "players": players
     })
 
-# ---------- Feedback ----------
 @app.route("/feedback")
 @guard("feedback")
 def feedback():
@@ -964,6 +943,31 @@ def admin_session_status():
         "session": {"id": srow["id"], "current_round": r_disp}
     })
 
+@app.get("/admin/sessions_overview")
+def admin_sessions_overview():
+    if not require_admin():
+        return ("Forbidden", 403)
+    con = db()
+    rows = con.execute("SELECT id, archived FROM sessions ORDER BY created_at DESC").fetchall()
+
+    active_ids = []
+    done_ids = []
+    archived_ids = []
+
+    for s in rows:
+        if s["archived"]:
+            archived_ids.append(s["id"])
+        elif _session_done(con, s["id"]):
+            done_ids.append(s["id"])
+        else:
+            active_ids.append(s["id"])
+
+    return jsonify({
+        "active": active_ids,
+        "done": done_ids,
+        "archived": archived_ids
+    })
+
 @app.post("/admin/reset_session")
 def admin_reset_session():
     if not require_admin():
@@ -1026,7 +1030,6 @@ def admin_delete_session():
     con.commit()
     return redirect(url_for("admin"))
 
-# --------- XLSX Export ----------
 def _style_table(ws, header_row=1, wrap_cols=None, int_cols=None):
     hdr_fill = PatternFill("solid", fgColor="1F2A44")
     hdr_font = Font(bold=True, color="FFFFFF")
@@ -1144,7 +1147,6 @@ def admin_export_session_xlsx():
         download_name=filename
     )
 
-# -------------------- Run --------------------
 if __name__ == "__main__":
     init_db()
     app.run(host="127.0.0.1", port=5000, debug=DEBUG_MODE)

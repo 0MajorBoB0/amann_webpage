@@ -22,7 +22,10 @@
       <label>Basisbetrag M (pro Runde)</label>
       <input type="number" name="base_payout" value="500" step="1" required>
     </div>
-    <div></div>
+    <div>
+      <label>Watch-Zeit (Sek.)</label>
+      <input type="number" name="watch_time" value="5" step="1" min="1" required>
+    </div>
     <div></div>
   </div>
   <button type="submit">Session erstellen</button>
@@ -45,7 +48,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
       </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
@@ -89,7 +92,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
       </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
@@ -126,7 +129,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
       </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
@@ -141,4 +144,37 @@
     <tr><td colspan="4" class="center" style="opacity:.7">– keine archivierten Sessions –</td></tr>
   {% endfor %}
 </table>
+
+<script>
+(function() {
+  const initialState = {
+    active: {{ sessions_active | map(attribute='id') | list | tojson }},
+    done: {{ sessions_done | map(attribute='id') | list | tojson }},
+    archived: {{ sessions_arch | map(attribute='id') | list | tojson }}
+  };
+
+  function arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  function checkForChanges() {
+    fetch('/admin/sessions_overview')
+      .then(r => r.json())
+      .then(data => {
+        if (!arraysEqual(data.active, initialState.active) ||
+            !arraysEqual(data.done, initialState.done) ||
+            !arraysEqual(data.archived, initialState.archived)) {
+          location.reload();
+        }
+      })
+      .catch(() => {});
+  }
+
+  setInterval(checkForChanges, 3000);
+})();
+</script>
 {% endblock %}
