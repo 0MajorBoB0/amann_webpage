@@ -74,6 +74,35 @@ def b_cost_adapt(ptype: int, others_A: int, N: int) -> float:
 
 
 # -------------------- DB helpers --------------------
+class MySQLConnectionWrapper:
+    """Wrapper to make PyMySQL connection behave like SQLite (with execute() method)."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, query, params=None):
+        """Execute a query and return a cursor-like object."""
+        cursor = self._conn.cursor()
+        cursor.execute(query, params or ())
+        return cursor
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def cursor(self):
+        return self._conn.cursor()
+
+    def begin(self):
+        """Start a transaction."""
+        cursor = self._conn.cursor()
+        cursor.execute("START TRANSACTION")
+        cursor.close()
+
 def _connect_mysql():
     """Create a new MySQL connection."""
     conn = pymysql.connect(
@@ -89,7 +118,7 @@ def _connect_mysql():
         read_timeout=30,
         write_timeout=30
     )
-    return conn
+    return MySQLConnectionWrapper(conn)
 
 def db():
     """
