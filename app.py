@@ -1,4 +1,4 @@
-import os, sqlite3, uuid, random, string, datetime, io
+import os, uuid, random, string, datetime, io
 from datetime import timedelta, timezone
 from functools import wraps
 from flask import (
@@ -8,9 +8,11 @@ from flask import (
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+import pymysql
+from pymysql.cursors import DictCursor
+from contextlib import contextmanager
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(APP_DIR, "game.db")
 
 def must_get_env(name: str) -> str:
     """Read required environment variables (fail fast if missing)."""
@@ -20,6 +22,13 @@ def must_get_env(name: str) -> str:
     return val
 
 ADMIN_PASSWORD = must_get_env("ADMIN_PASSWORD")
+
+# MySQL Configuration
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_USER = must_get_env("DB_USER")
+DB_PASSWORD = must_get_env("DB_PASSWORD")
+DB_NAME = must_get_env("DB_NAME")
+DB_PORT = int(os.environ.get("DB_PORT", "3306"))
 
 app = Flask(
     __name__,
@@ -65,29 +74,35 @@ def b_cost_adapt(ptype: int, others_A: int, N: int) -> float:
 
 
 # -------------------- DB helpers --------------------
-def _connect_sqlite():
-    c = sqlite3.connect(DB_PATH, check_same_thread=False)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL;")
-    c.execute("PRAGMA busy_timeout=15000;")
-    c.execute("PRAGMA synchronous=NORMAL;")
-    c.execute("PRAGMA cache_size=-64000;")
-    c.execute("PRAGMA temp_store=MEMORY;")
-    c.execute("PRAGMA foreign_keys=ON;")
-    return c
+def _connect_mysql():
+    """Create a new MySQL connection."""
+    conn = pymysql.connect(
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        port=DB_PORT,
+        cursorclass=DictCursor,
+        charset='utf8mb4',
+        autocommit=False,
+        connect_timeout=10,
+        read_timeout=30,
+        write_timeout=30
+    )
+    return conn
 
 def db():
     """
-    SQLite connection helper.
+    MySQL connection helper.
 
     - Outside a Flask request context (e.g., init_db): returns a standalone connection.
     - Inside a request: reuses one connection stored on flask.g and closes it on teardown.
     """
     if not has_app_context():
-        return _connect_sqlite()
+        return _connect_mysql()
 
     if "db" not in g:
-        g.db = _connect_sqlite()
+        g.db = _connect_mysql()
     return g.db
 
 @app.teardown_appcontext
@@ -101,23 +116,41 @@ def close_db(exception=None):
 
 
 def ensure_column(con, table, column, definition):
-    cols = [r[1] for r in con.execute(f"PRAGMA table_info({table})").fetchall()]
-    if column not in cols:
-        con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    """Add column to table if it doesn't exist (MySQL version)."""
+    cursor = con.cursor()
+    cursor.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (column,))
+    if not cursor.fetchone():
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         con.commit()
+    cursor.close()
 
 def ensure_archive_schema(con, base_table):
+    """Ensure archived table has same schema as base table (MySQL version)."""
     arch_table = f"archived_{base_table}"
-    base_cols = con.execute(f"PRAGMA table_info({base_table})").fetchall()
-    arch_cols = {r[1] for r in con.execute(f"PRAGMA table_info({arch_table})").fetchall()}
-    for r in base_cols:
-        name, coltype, dflt = r[1], (r[2] or "TEXT"), r[4]
+    cursor = con.cursor()
+
+    # Get base table columns
+    cursor.execute(f"SHOW COLUMNS FROM {base_table}")
+    base_cols = {row['Field']: row for row in cursor.fetchall()}
+
+    # Get archive table columns
+    cursor.execute(f"SHOW COLUMNS FROM {arch_table}")
+    arch_cols = {row['Field'] for row in cursor.fetchall()}
+
+    # Add missing columns
+    for name, col_info in base_cols.items():
         if name not in arch_cols:
-            if dflt is None:
-                con.execute(f"ALTER TABLE {arch_table} ADD COLUMN {name} {coltype}")
+            col_type = col_info['Type']
+            default = col_info['Default']
+            null = "NULL" if col_info['Null'] == 'YES' else "NOT NULL"
+
+            if default is not None:
+                cursor.execute(f"ALTER TABLE {arch_table} ADD COLUMN {name} {col_type} {null} DEFAULT {default}")
             else:
-                con.execute(f"ALTER TABLE {arch_table} ADD COLUMN {name} {coltype} DEFAULT {dflt}")
+                cursor.execute(f"ALTER TABLE {arch_table} ADD COLUMN {name} {col_type} {null}")
+
     con.commit()
+    cursor.close()
 
 # ---------- UTC helpers (aware) ----------
 def utc_now():
@@ -132,86 +165,143 @@ def parse_iso_utc(s: str) -> datetime.datetime:
 
 def init_db():
     con = db()
-    con.execute(
+    cursor = con.cursor()
+
+    cursor.execute(
         """CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY, name TEXT, group_size INTEGER, rounds INTEGER,
-        cvac REAL, alpha REAL, cinf REAL, subsidy INTEGER DEFAULT 0, subsidy_amount REAL DEFAULT 0,
-        regime TEXT, starting_balance REAL DEFAULT 500, created_at TEXT,
-        archived INTEGER DEFAULT 0,
-        reveal_window INTEGER DEFAULT 5,
-        watch_time INTEGER DEFAULT 15
-    )"""
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255),
+        group_size INT,
+        rounds INT,
+        cvac DECIMAL(10,2),
+        alpha DECIMAL(10,2),
+        cinf DECIMAL(10,2),
+        subsidy TINYINT DEFAULT 0,
+        subsidy_amount DECIMAL(10,2) DEFAULT 0,
+        regime VARCHAR(50),
+        starting_balance DECIMAL(10,2) DEFAULT 500,
+        created_at VARCHAR(30),
+        archived TINYINT DEFAULT 0,
+        reveal_window INT DEFAULT 5,
+        watch_time INT DEFAULT 15,
+        cost_mode VARCHAR(50) DEFAULT 'type_table'
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
-    con.execute(
+
+    cursor.execute(
         """CREATE TABLE IF NOT EXISTS participants (
-        id TEXT PRIMARY KEY, session_id TEXT, code TEXT UNIQUE,
-        theta REAL, lambda REAL,
-        joined INTEGER DEFAULT 0,
-        join_number INTEGER,
-        current_round INTEGER DEFAULT 1,
-        balance REAL DEFAULT 0,
-        completed INTEGER DEFAULT 0,
-        created_at TEXT,
-        ptype INTEGER
-    )"""
+        id VARCHAR(36) PRIMARY KEY,
+        session_id VARCHAR(36),
+        code VARCHAR(10) UNIQUE,
+        theta DECIMAL(10,2),
+        lambda DECIMAL(10,2),
+        joined TINYINT DEFAULT 0,
+        join_number INT,
+        current_round INT DEFAULT 1,
+        balance DECIMAL(10,2) DEFAULT 0,
+        completed TINYINT DEFAULT 0,
+        created_at VARCHAR(30),
+        ptype INT,
+        ready_for_next TINYINT DEFAULT 0,
+        INDEX idx_session (session_id),
+        INDEX idx_session_code (session_id, code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
-    con.execute(
+
+    cursor.execute(
         """CREATE TABLE IF NOT EXISTS decisions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, participant_id TEXT,
-        round_number INTEGER, choice TEXT, a_cost REAL, b_cost REAL, total_cost REAL, created_at TEXT,
-        reveal INTEGER, payout REAL,
-        others_A INTEGER, b_cost_round REAL, base_payout REAL
-    )"""
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        session_id VARCHAR(36),
+        participant_id VARCHAR(36),
+        round_number INT,
+        choice VARCHAR(1),
+        a_cost DECIMAL(10,2),
+        b_cost DECIMAL(10,2),
+        total_cost DECIMAL(10,2),
+        created_at VARCHAR(30),
+        reveal TINYINT,
+        payout DECIMAL(10,2),
+        others_A INT,
+        b_cost_round DECIMAL(10,2),
+        base_payout DECIMAL(10,2),
+        INDEX idx_session_round (session_id, round_number),
+        INDEX idx_participant_round (participant_id, round_number),
+        UNIQUE KEY ux_participant_round (participant_id, round_number)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
     )
-    con.commit()
 
-    ensure_column(con, "participants", "join_number", "INTEGER")
-    ensure_column(con, "participants", "completed", "INTEGER DEFAULT 0")
-    ensure_column(con, "participants", "ptype", "INTEGER")
-    ensure_column(con, "participants", "ready_for_next", "INTEGER DEFAULT 0")
-    ensure_column(con, "sessions", "archived", "INTEGER DEFAULT 0")
-    ensure_column(con, "sessions", "reveal_window", "INTEGER DEFAULT 5")
-    ensure_column(con, "sessions", "watch_time", "INTEGER DEFAULT 15")
-    ensure_column(con, "sessions", "starting_balance", "REAL DEFAULT 500")
-    ensure_column(con, "sessions", "cost_mode", "TEXT DEFAULT 'type_table'")
-    ensure_column(con, "decisions", "reveal", "INTEGER")
-    ensure_column(con, "decisions", "payout", "REAL")
-    ensure_column(con, "decisions", "others_A", "INTEGER")
-    ensure_column(con, "decisions", "b_cost_round", "REAL")
-    ensure_column(con, "decisions", "base_payout", "REAL")
-
-    con.execute("""
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS round_phases (
-            session_id TEXT,
-            round_number INTEGER,
-            decision_ends_at TEXT,
-            watch_ends_at TEXT,
-            created_at TEXT,
+            session_id VARCHAR(36),
+            round_number INT,
+            decision_ends_at VARCHAR(30),
+            watch_ends_at VARCHAR(30),
+            created_at VARCHAR(30),
             PRIMARY KEY (session_id, round_number)
-        )
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """)
+
+    # Create archived tables with same structure
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS archived_sessions (
+            id VARCHAR(36) PRIMARY KEY,
+            name VARCHAR(255),
+            group_size INT,
+            rounds INT,
+            cvac DECIMAL(10,2),
+            alpha DECIMAL(10,2),
+            cinf DECIMAL(10,2),
+            subsidy TINYINT DEFAULT 0,
+            subsidy_amount DECIMAL(10,2) DEFAULT 0,
+            regime VARCHAR(50),
+            starting_balance DECIMAL(10,2) DEFAULT 500,
+            created_at VARCHAR(30),
+            archived TINYINT DEFAULT 0,
+            reveal_window INT DEFAULT 5,
+            watch_time INT DEFAULT 15,
+            cost_mode VARCHAR(50) DEFAULT 'type_table'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS archived_participants (
+            id VARCHAR(36) PRIMARY KEY,
+            session_id VARCHAR(36),
+            code VARCHAR(10),
+            theta DECIMAL(10,2),
+            lambda DECIMAL(10,2),
+            joined TINYINT DEFAULT 0,
+            join_number INT,
+            current_round INT DEFAULT 1,
+            balance DECIMAL(10,2) DEFAULT 0,
+            completed TINYINT DEFAULT 0,
+            created_at VARCHAR(30),
+            ptype INT,
+            ready_for_next TINYINT DEFAULT 0
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS archived_decisions (
+            id INT PRIMARY KEY,
+            session_id VARCHAR(36),
+            participant_id VARCHAR(36),
+            round_number INT,
+            choice VARCHAR(1),
+            a_cost DECIMAL(10,2),
+            b_cost DECIMAL(10,2),
+            total_cost DECIMAL(10,2),
+            created_at VARCHAR(30),
+            reveal TINYINT,
+            payout DECIMAL(10,2),
+            others_A INT,
+            b_cost_round DECIMAL(10,2),
+            base_payout DECIMAL(10,2)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """)
+
     con.commit()
-
-    con.execute("""CREATE TABLE IF NOT EXISTS archived_sessions    AS SELECT * FROM sessions    WHERE 0""")
-    con.execute("""CREATE TABLE IF NOT EXISTS archived_participants AS SELECT * FROM participants WHERE 0""")
-    con.execute("""CREATE TABLE IF NOT EXISTS archived_decisions   AS SELECT * FROM decisions   WHERE 0""")
-    con.commit()
-    ensure_archive_schema(con, "sessions")
-    ensure_archive_schema(con, "participants")
-    ensure_archive_schema(con, "decisions")
-
-    # Performance / integrity indices
-    con.execute("CREATE INDEX IF NOT EXISTS idx_decisions_session_round ON decisions(session_id, round_number)")
-    con.execute("CREATE INDEX IF NOT EXISTS idx_decisions_participant_round ON decisions(participant_id, round_number)")
-    con.execute("CREATE INDEX IF NOT EXISTS idx_participants_session ON participants(session_id)")
-    con.execute("CREATE INDEX IF NOT EXISTS idx_participants_session_code ON participants(session_id, code)")
-
-    try:
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_decisions_participant_round ON decisions(participant_id, round_number)")
-    except (sqlite3.IntegrityError, sqlite3.OperationalError):
-        pass
-
-    con.commit()
+    cursor.close()
     con.close()
 
 
@@ -301,36 +391,40 @@ def guard(expect_state: str):
 
 
 # -------------------- Round finalization (atomic) --------------------
-def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
-
-    con.execute("BEGIN IMMEDIATE")
+def _finalize_round_atomic(con, sid: str, r: int, s: dict):
+    cursor = con.cursor()
 
     try:
-        decided = con.execute(
-            "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
+        con.begin()
+
+        cursor.execute(
+            "SELECT COUNT(*) as c FROM decisions WHERE session_id=%s AND round_number=%s",
             (sid, r)
-        ).fetchone()["c"]
+        )
+        decided = cursor.fetchone()["c"]
 
         if decided < s["group_size"]:
-            con.execute("ROLLBACK")
+            con.rollback()
             return
 
-        missing = con.execute(
-            "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=? AND total_cost IS NULL",
+        cursor.execute(
+            "SELECT COUNT(*) as c FROM decisions WHERE session_id=%s AND round_number=%s AND total_cost IS NULL",
             (sid, r)
-        ).fetchone()["c"]
+        )
+        missing = cursor.fetchone()["c"]
 
         if missing <= 0:
-            con.execute("ROLLBACK")
+            con.rollback()
             return
 
-        rows = con.execute(
+        cursor.execute(
             """SELECT d.id, d.participant_id, d.choice, p.ptype, p.join_number
                FROM decisions d JOIN participants p ON p.id=d.participant_id
-               WHERE d.session_id=? AND d.round_number=?
+               WHERE d.session_id=%s AND d.round_number=%s
                ORDER BY p.join_number""",
             (sid, r)
-        ).fetchall()
+        )
+        rows = cursor.fetchall()
 
         total_A = sum(1 for row in rows if row["choice"] == "A")
         N = s["group_size"]
@@ -353,11 +447,11 @@ def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
 
             payout = max(M - float(cost), 0)
 
-            con.execute(
+            cursor.execute(
                 """UPDATE decisions
-                   SET a_cost=?, b_cost=?, total_cost=?,
-                       payout=?, base_payout=?, others_A=?, b_cost_round=?, reveal=1
-                   WHERE id=? AND total_cost IS NULL""",
+                   SET a_cost=%s, b_cost=%s, total_cost=%s,
+                       payout=%s, base_payout=%s, others_A=%s, b_cost_round=%s, reveal=1
+                   WHERE id=%s AND total_cost IS NULL""",
                 (
                     cost if choice == "A" else None,
                     cost if choice == "B" else None,
@@ -370,19 +464,19 @@ def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
                 )
             )
 
-            con.execute("UPDATE participants SET balance=? WHERE id=?", (payout, pid))
+            cursor.execute("UPDATE participants SET balance=%s WHERE id=%s", (payout, pid))
 
-        con.execute(
-            "UPDATE participants SET current_round = current_round + 1, ready_for_next = 0 WHERE session_id=? AND current_round=?",
+        cursor.execute(
+            "UPDATE participants SET current_round = current_round + 1, ready_for_next = 0 WHERE session_id=%s AND current_round=%s",
             (sid, r)
         )
 
         now = utc_now()
         sec = int(s["watch_time"] or s["reveal_window"] or 5)
-        con.execute(
-            """INSERT OR REPLACE INTO round_phases
+        cursor.execute(
+            """REPLACE INTO round_phases
                (session_id,round_number,decision_ends_at,watch_ends_at,created_at)
-               VALUES (?,?,?,?,?)""",
+               VALUES (%s,%s,%s,%s,%s)""",
             (sid, r, iso_utc(now), iso_utc(now + timedelta(seconds=sec)), iso_utc(now))
         )
 
@@ -390,10 +484,12 @@ def _finalize_round_atomic(con, sid: str, r: int, s: sqlite3.Row):
 
     except Exception:
         try:
-            con.execute("ROLLBACK")
+            con.rollback()
         except Exception:
             pass
         raise
+    finally:
+        cursor.close()
 
 
 # -------------------- Public --------------------
