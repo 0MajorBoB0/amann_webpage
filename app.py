@@ -312,7 +312,7 @@ def load_participant():
     g.participant = None
     if pid:
         con = db()
-        g.participant = con.execute("SELECT * FROM participants WHERE id=?", (pid,)).fetchone()
+        g.participant = con.execute("SELECT * FROM participants WHERE id=%s", (pid,)).fetchone()
 
 def create_code(n=6):
     chars = (string.ascii_uppercase + string.digits).replace("O","").replace("0","").replace("I","").replace("1","")
@@ -325,7 +325,7 @@ def current_state(con, p, s) -> str:
     if s["archived"]: return "done"
 
     joined = con.execute(
-        "SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1", (s["id"],)
+        "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND joined=1", (s["id"],)
     ).fetchone()["c"]
     if joined < s["group_size"]:
         return "lobby"
@@ -334,7 +334,7 @@ def current_state(con, p, s) -> str:
 
     if r > s["rounds"]:
         all_ready = con.execute(
-            "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
+            "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND ready_for_next=1",
             (s["id"],)
         ).fetchone()["c"] >= s["group_size"]
 
@@ -345,7 +345,7 @@ def current_state(con, p, s) -> str:
 
     if r > 1:
         all_ready = con.execute(
-            "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ready_for_next=1",
+            "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND ready_for_next=1",
             (s["id"],)
         ).fetchone()["c"] >= s["group_size"]
 
@@ -353,12 +353,12 @@ def current_state(con, p, s) -> str:
             return "reveal"
 
     decided = con.execute(
-        "SELECT 1 FROM decisions WHERE participant_id=? AND round_number=?", (p["id"], r)
+        "SELECT 1 FROM decisions WHERE participant_id=%s AND round_number=%s", (p["id"], r)
     ).fetchone()
     if not decided: return "round"
 
     ph = con.execute(
-        "SELECT watch_ends_at FROM round_phases WHERE session_id=? AND round_number=?",
+        "SELECT watch_ends_at FROM round_phases WHERE session_id=%s AND round_number=%s",
         (s["id"], r)
     ).fetchone()
     if not ph: return "wait"
@@ -381,8 +381,8 @@ def guard(expect_state: str):
         def inner(*args, **kwargs):
             if not g.participant: return redirect(url_for("join"))
             con = db()
-            p = con.execute("SELECT * FROM participants WHERE id=?", (g.participant["id"],)).fetchone()
-            s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+            p = con.execute("SELECT * FROM participants WHERE id=%s", (g.participant["id"],)).fetchone()
+            s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
             st = current_state(con, p, s)
             if st != expect_state: return redirect(state_to_url(st))
             return fn(*args, **kwargs)
@@ -497,8 +497,8 @@ def _finalize_round_atomic(con, sid: str, r: int, s: dict):
 def index():
     if g.participant:
         con = db()
-        p = con.execute("SELECT * FROM participants WHERE id=?", (g.participant["id"],)).fetchone()
-        s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+        p = con.execute("SELECT * FROM participants WHERE id=%s", (g.participant["id"],)).fetchone()
+        s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
         return redirect(state_to_url(current_state(con, p, s)))
     return redirect(url_for("join"))
 
@@ -512,7 +512,7 @@ def join():
     con = db()
     if request.method == "POST":
         code = request.form.get("code", "").strip().upper()
-        p = con.execute("SELECT * FROM participants WHERE code=?", (code,)).fetchone()
+        p = con.execute("SELECT * FROM participants WHERE code=%s", (code,)).fetchone()
         if not p:
             return render_template("join.html", error="Code unbekannt.")
         if p["completed"]:
@@ -520,28 +520,28 @@ def join():
         now = iso_utc(utc_now())
         if not p["joined"]:
             nxt = con.execute(
-                "SELECT COALESCE(MAX(join_number),0)+1 AS n FROM participants WHERE session_id=? AND joined=1",
+                "SELECT COALESCE(MAX(join_number),0)+1 AS n FROM participants WHERE session_id=%s AND joined=1",
                 (p["session_id"],)
             ).fetchone()["n"]
             ptype = p["ptype"] or ((nxt-1) % 6) + 1
             con.execute(
-                "UPDATE participants SET joined=1, join_number=?, ptype=?, created_at=COALESCE(created_at, ?) WHERE id=?",
+                "UPDATE participants SET joined=1, join_number=%s, ptype=%s, created_at=COALESCE(created_at, %s) WHERE id=%s",
                 (nxt, ptype, now, p["id"])
             )
         else:
             if not p["ptype"]:
                 cnt = con.execute(
-                    "SELECT COUNT(*) c FROM participants WHERE session_id=? AND ptype IS NOT NULL",
+                    "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND ptype IS NOT NULL",
                     (p["session_id"],)
                 ).fetchone()["c"]
                 ptype = (cnt % 6) + 1
-                con.execute("UPDATE participants SET ptype=? WHERE id=?", (ptype, p["id"]))
-            con.execute("UPDATE participants SET joined=1 WHERE id=?", (p["id"],))
+                con.execute("UPDATE participants SET ptype=%s WHERE id=%s", (ptype, p["id"]))
+            con.execute("UPDATE participants SET joined=1 WHERE id=%s", (p["id"],))
         flask_session["participant_id"] = p["id"]
         flask_session.permanent = False
         con.commit()
-        p2 = con.execute("SELECT * FROM participants WHERE id=?", (p["id"],)).fetchone()
-        s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+        p2 = con.execute("SELECT * FROM participants WHERE id=%s", (p["id"],)).fetchone()
+        s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
         return redirect(state_to_url(current_state(con, p2, s)))
     return render_template("join.html", error=None)
 
@@ -549,9 +549,9 @@ def join():
 @guard("lobby")
 def lobby():
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (g.participant["session_id"],)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (g.participant["session_id"],)).fetchone()
     joined = con.execute(
-        "SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1",
+        "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND joined=1",
         (s["id"],)
     ).fetchone()["c"]
     return render_template("lobby.html", session=s, participant=g.participant, joined=joined)
@@ -561,17 +561,17 @@ def lobby_status():
     sid = request.args.get("session_id")
     pid = request.args.get("participant_id")
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s:
         return jsonify({"err": "unknown_session"}), 404
     joined = con.execute(
-        "SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1",
+        "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND joined=1",
         (sid,)
     ).fetchone()["c"]
 
     reset = False
     if pid:
-        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        p = con.execute("SELECT joined FROM participants WHERE id=%s", (pid,)).fetchone()
         if p and not p["joined"]:
             reset = True
 
@@ -583,7 +583,7 @@ def lobby_status():
 def round_view():
     con = db()
     p = g.participant
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
     r = p["current_round"]
     ptype = p["ptype"] or 1
     N = s["group_size"]
@@ -616,18 +616,18 @@ def choose():
         return ("Invalid choice", 400)
     con = db()
     p = g.participant
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
     r = p["current_round"]
 
     already = con.execute(
-        "SELECT 1 FROM decisions WHERE participant_id=? AND round_number=?",
+        "SELECT 1 FROM decisions WHERE participant_id=%s AND round_number=%s",
         (p["id"], r)
     ).fetchone()
     if already:
         return jsonify({"ok": True})
 
     con.execute(
-        "INSERT INTO decisions (session_id, participant_id, round_number, choice, created_at) VALUES (?,?,?,?,?)",
+        "INSERT INTO decisions (session_id, participant_id, round_number, choice, created_at) VALUES (%s,%s,%s,%s,%s)",
         (s["id"], p["id"], r, choice, iso_utc(utc_now())),
     )
     con.commit()
@@ -638,10 +638,10 @@ def choose():
 def wait_view():
     con = db()
     p = g.participant
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
     r = p["current_round"]
     decided = con.execute(
-        "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
+        "SELECT COUNT(*) c FROM decisions WHERE session_id=%s AND round_number=%s",
         (s["id"], r)
     ).fetchone()["c"]
     return render_template("wait.html", session=s, round_number=r, decided=decided, participant=p)
@@ -652,20 +652,20 @@ def round_status():
     r = int(request.args.get("round"))
     pid = request.args.get("participant_id")
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s:
         return jsonify({"err": "unknown_session"}), 404
 
     reset = False
     if pid:
-        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        p = con.execute("SELECT joined FROM participants WHERE id=%s", (pid,)).fetchone()
         if p and not p["joined"]:
             reset = True
     if reset:
         return jsonify({"reset": True})
 
     decided = con.execute(
-        "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
+        "SELECT COUNT(*) c FROM decisions WHERE session_id=%s AND round_number=%s",
         (sid, r)
     ).fetchone()["c"]
     ready = decided >= s["group_size"]
@@ -676,11 +676,11 @@ def round_status():
     if ready:
         try:
             _finalize_round_atomic(con, sid, r, s)
-        except sqlite3.OperationalError:
+        except pymysql.OperationalError:
             pass
 
         rp = con.execute(
-            "SELECT * FROM round_phases WHERE session_id=? AND round_number=?",
+            "SELECT * FROM round_phases WHERE session_id=%s AND round_number=%s",
             (sid, r)
         ).fetchone()
         watch_ends_at = rp["watch_ends_at"] if rp else None
@@ -688,7 +688,7 @@ def round_status():
         for row in con.execute("""
              SELECT p.join_number, d.choice, d.total_cost, d.payout
              FROM decisions d JOIN participants p ON p.id=d.participant_id
-             WHERE d.session_id=? AND d.round_number=? ORDER BY p.join_number
+             WHERE d.session_id=%s AND d.round_number=%s ORDER BY p.join_number
         """, (sid, r)).fetchall():
             players_payload.append({
                 "player_no": row["join_number"],
@@ -699,7 +699,7 @@ def round_status():
 
     decided_players = [row["join_number"] for row in con.execute(
         "SELECT p.join_number FROM decisions d JOIN participants p ON p.id=d.participant_id "
-        "WHERE d.session_id=? AND d.round_number=? ORDER BY p.join_number",
+        "WHERE d.session_id=%s AND d.round_number=%s ORDER BY p.join_number",
         (sid, r)
     ).fetchall()]
 
@@ -717,7 +717,7 @@ def round_status():
 def reveal():
     con = db()
     p = g.participant
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
     r = p["current_round"] - 1
     if r < 1: return redirect(url_for("round_view"))
     is_last_round = (p["current_round"] > s["rounds"])
@@ -728,18 +728,18 @@ def reveal_status():
     sid = request.args.get("session_id")
     r = int(request.args.get("round") or 0)
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s or r < 1: return jsonify({"err":"bad"}), 400
 
     ph = con.execute(
-        "SELECT decision_ends_at, watch_ends_at FROM round_phases WHERE session_id=? AND round_number=?",
+        "SELECT decision_ends_at, watch_ends_at FROM round_phases WHERE session_id=%s AND round_number=%s",
         (sid, r)
     ).fetchone()
     now = utc_now()
     if not ph:
         sec = int(s["reveal_window"] or 5)
         con.execute(
-            "INSERT OR REPLACE INTO round_phases (session_id,round_number,decision_ends_at,watch_ends_at,created_at) VALUES (?,?,?,?,?)",
+            "REPLACE INTO round_phases (session_id,round_number,decision_ends_at,watch_ends_at,created_at) VALUES (%s,%s,%s,%s,%s)",
             (sid, r, iso_utc(now), iso_utc(now + timedelta(seconds=sec)), iso_utc(now))
         )
         con.commit()
@@ -748,7 +748,7 @@ def reveal_status():
         ends_at = ph["watch_ends_at"] if ph["watch_ends_at"].endswith("Z") else ph["watch_ends_at"] + "Z"
 
     con.execute(
-        "UPDATE decisions SET reveal=1 WHERE session_id=? AND round_number=? AND (reveal IS NULL OR reveal!=1)",
+        "UPDATE decisions SET reveal=1 WHERE session_id=%s AND round_number=%s AND (reveal IS NULL OR reveal!=1)",
         (sid, r)
     )
     con.commit()
@@ -756,8 +756,8 @@ def reveal_status():
     rows = con.execute("""
         SELECT p.id as pid, p.code, p.join_number, d.choice, d.payout
         FROM participants p
-        LEFT JOIN decisions d ON d.participant_id=p.id AND d.round_number=?
-        WHERE p.session_id=?
+        LEFT JOIN decisions d ON d.participant_id=p.id AND d.round_number=%s
+        WHERE p.session_id=%s
         ORDER BY p.join_number, p.code
     """, (r, sid)).fetchall()
 
@@ -775,7 +775,7 @@ def reveal_status():
             me = obj
 
     ph2 = con.execute(
-        "SELECT watch_ends_at FROM round_phases WHERE session_id=? AND round_number=?",
+        "SELECT watch_ends_at FROM round_phases WHERE session_id=%s AND round_number=%s",
         (sid, r)
     ).fetchone()
     phase = "watch"
@@ -793,7 +793,7 @@ def confirm_ready():
         return ("No participant", 400)
     con = db()
     p = g.participant
-    con.execute("UPDATE participants SET ready_for_next=1 WHERE id=?", (p["id"],))
+    con.execute("UPDATE participants SET ready_for_next=1 WHERE id=%s", (p["id"],))
     con.commit()
     return jsonify({"ok": True})
 
@@ -803,13 +803,13 @@ def ready_status():
     sid = request.args.get("session_id")
     pid = request.args.get("participant_id")
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s:
         return jsonify({"err": "unknown_session"}), 404
 
     reset = False
     if pid:
-        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        p = con.execute("SELECT joined FROM participants WHERE id=%s", (pid,)).fetchone()
         if p and not p["joined"]:
             reset = True
     if reset:
@@ -817,7 +817,7 @@ def ready_status():
 
     rows = con.execute(
         """SELECT p.id, p.join_number, p.ready_for_next
-           FROM participants p WHERE p.session_id=? ORDER BY p.join_number""",
+           FROM participants p WHERE p.session_id=%s ORDER BY p.join_number""",
         (sid,)
     ).fetchall()
 
@@ -849,23 +849,23 @@ def ready_status():
 def feedback():
     con = db()
     p = g.participant
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (p["session_id"],)).fetchone()
     r = p["current_round"] - 1
     if r < 1:
         return redirect(url_for("round_view"))
 
     d = con.execute(
         "SELECT choice, total_cost, payout, base_payout, b_cost_round, others_A "
-        "FROM decisions WHERE session_id=? AND participant_id=? AND round_number=?",
+        "FROM decisions WHERE session_id=%s AND participant_id=%s AND round_number=%s",
         (s["id"], p["id"], r),
     ).fetchone()
 
     decided_A = con.execute(
-        "SELECT COUNT(*) AS c FROM decisions WHERE session_id=? AND round_number=? AND choice='A'",
+        "SELECT COUNT(*) AS c FROM decisions WHERE session_id=%s AND round_number=%s AND choice='A'",
         (s["id"], r),
     ).fetchone()["c"]
     decided_B = con.execute(
-        "SELECT COUNT(*) AS c FROM decisions WHERE session_id=? AND round_number=? AND choice='B'",
+        "SELECT COUNT(*) AS c FROM decisions WHERE session_id=%s AND round_number=%s AND choice='B'",
         (s["id"], r),
     ).fetchone()["c"]
 
@@ -893,11 +893,11 @@ def done():
     balance = None
     code = None
     if pid:
-        row = con.execute("SELECT code, balance FROM participants WHERE id=?", (pid,)).fetchone()
+        row = con.execute("SELECT code, balance FROM participants WHERE id=%s", (pid,)).fetchone()
         if row:
             balance = row["balance"]
             code = row["code"]
-            con.execute("UPDATE participants SET completed=1 WHERE id=?", (pid,))
+            con.execute("UPDATE participants SET completed=1 WHERE id=%s", (pid,))
             con.commit()
     flask_session.pop("participant_id", None)
     return render_template("done.html", balance=balance, code=code)
@@ -912,13 +912,13 @@ def require_admin():
     return bool(flask_session.get("admin_ok"))
 
 def _session_done(con, sid):
-    row = con.execute("SELECT group_size, rounds FROM sessions WHERE id=?", (sid,)).fetchone()
+    row = con.execute("SELECT group_size, rounds FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not row:
         return False
     grp = row["group_size"]
     rmax = row["rounds"]
     cnt = con.execute(
-        "SELECT COUNT(*) c FROM participants WHERE session_id=? AND current_round > ?",
+        "SELECT COUNT(*) c FROM participants WHERE session_id=%s AND current_round > %s",
         (sid, rmax)
     ).fetchone()["c"]
     return cnt >= grp
@@ -956,7 +956,7 @@ def admin():
             INSERT INTO sessions
               (id,name,group_size,rounds,cvac,alpha,cinf,subsidy,subsidy_amount,
                starting_balance,created_at,archived,reveal_window,watch_time,cost_mode)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             sid, name, group_size, rounds, cvac, alpha, cinf, subsidy, subsidy_amount,
             base_payout, iso_utc(utc_now()), 0, 5, 5, cost_mode
@@ -966,13 +966,13 @@ def admin():
             pid = str(uuid.uuid4())
             while True:
                 code = create_code(6)
-                if not con.execute("SELECT 1 FROM participants WHERE code=?", (code,)).fetchone():
+                if not con.execute("SELECT 1 FROM participants WHERE code=%s", (code,)).fetchone():
                     break
             ptype = (i % 6) + 1
             theta = 0.0
             lambd = 0.0
             con.execute(
-                "INSERT INTO participants (id,session_id,code,theta,lambda,joined,join_number,current_round,balance,completed,created_at,ptype) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO participants (id,session_id,code,theta,lambda,joined,join_number,current_round,balance,completed,created_at,ptype) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (pid, sid, code, theta, lambd, 0, None, 1, base_payout, 0, iso_utc(utc_now()), ptype)
             )
         con.commit()
@@ -981,7 +981,7 @@ def admin():
     rows = con.execute("SELECT * FROM sessions ORDER BY created_at DESC").fetchall()
     sessions_active, sessions_done, sessions_arch = [], [], []
     for s in rows:
-        ps = con.execute("SELECT code FROM participants WHERE session_id=?", (s["id"],)).fetchall()
+        ps = con.execute("SELECT code FROM participants WHERE session_id=%s", (s["id"],)).fetchall()
         sdict = {**dict(s), "participants": [dict(p) for p in ps]}
         if s["archived"]:
             sessions_arch.append(sdict)
@@ -1006,11 +1006,11 @@ def admin_session_view(session_id):
     if not require_admin():
         return redirect(url_for("admin_login"))
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (session_id,)).fetchone()
     if not s:
         return redirect(url_for("admin"))
     r = con.execute(
-        "SELECT MIN(current_round) AS r FROM participants WHERE session_id=?",
+        "SELECT MIN(current_round) AS r FROM participants WHERE session_id=%s",
         (session_id,)
     ).fetchone()["r"] or 1
     r = min(r, s["rounds"])
@@ -1022,21 +1022,21 @@ def admin_session_status():
         return ("Forbidden", 403)
     sid = request.args.get("session_id")
     con = db()
-    srow = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    srow = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not srow:
         return jsonify({"participants": [], "decided_count": 0, "session": None})
 
     r = con.execute(
-        "SELECT MIN(current_round) AS r FROM participants WHERE session_id=?",
+        "SELECT MIN(current_round) AS r FROM participants WHERE session_id=%s",
         (sid,)
     ).fetchone()["r"] or 1
     r_disp = min(r, srow["rounds"])
 
     rows = con.execute(
         """SELECT p.id, p.code, p.join_number, p.balance, p.current_round, p.ready_for_next,
-                  EXISTS(SELECT 1 FROM decisions d WHERE d.participant_id=p.id AND d.round_number=?) AS decided,
-                  (SELECT d.choice FROM decisions d WHERE d.participant_id=p.id AND d.round_number=? LIMIT 1) AS choice
-           FROM participants p WHERE p.session_id=? ORDER BY p.join_number, p.code""",
+                  EXISTS(SELECT 1 FROM decisions d WHERE d.participant_id=p.id AND d.round_number=%s) AS decided,
+                  (SELECT d.choice FROM decisions d WHERE d.participant_id=p.id AND d.round_number=%s LIMIT 1) AS choice
+           FROM participants p WHERE p.session_id=%s ORDER BY p.join_number, p.code""",
         (r, r, sid)
     ).fetchall()
 
@@ -1066,18 +1066,18 @@ def admin_reset_session():
         return redirect(url_for("admin_login"))
     sid = request.form.get("session_id")
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s:
         return redirect(url_for("admin"))
 
-    con.execute("DELETE FROM decisions WHERE session_id=?", (sid,))
-    con.execute("DELETE FROM round_phases WHERE session_id=?", (sid,))
+    con.execute("DELETE FROM decisions WHERE session_id=%s", (sid,))
+    con.execute("DELETE FROM round_phases WHERE session_id=%s", (sid,))
     con.execute(
-        "UPDATE participants SET current_round=1, join_number=NULL, joined=0, balance=?, completed=0, ready_for_next=0 WHERE session_id=?",
+        "UPDATE participants SET current_round=1, join_number=NULL, joined=0, balance=%s, completed=0, ready_for_next=0 WHERE session_id=%s",
         (s["starting_balance"], sid)
     )
     con.commit()
-    con.execute("UPDATE sessions SET archived=0 WHERE id=?", (sid,))
+    con.execute("UPDATE sessions SET archived=0 WHERE id=%s", (sid,))
     con.commit()
     return redirect(url_for("admin"))
 
@@ -1087,7 +1087,7 @@ def admin_archive_session():
         return redirect(url_for("admin_login"))
     sid = request.form.get("session_id")
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s:
         return redirect(url_for("admin"))
 
@@ -1095,12 +1095,12 @@ def admin_archive_session():
     ensure_archive_schema(con, "participants")
     ensure_archive_schema(con, "decisions")
 
-    con.execute("BEGIN IMMEDIATE")
-    con.execute("INSERT INTO archived_sessions SELECT * FROM sessions WHERE id=?", (sid,))
-    con.execute("INSERT INTO archived_participants SELECT * FROM participants WHERE session_id=?", (sid,))
-    con.execute("INSERT INTO archived_decisions SELECT * FROM decisions WHERE session_id=?", (sid,))
-    con.execute("UPDATE sessions SET archived=1 WHERE id=?", (sid,))
-    con.execute("UPDATE participants SET completed=1 WHERE session_id=?", (sid,))
+    con.execute("START TRANSACTION")
+    con.execute("INSERT INTO archived_sessions SELECT * FROM sessions WHERE id=%s", (sid,))
+    con.execute("INSERT INTO archived_participants SELECT * FROM participants WHERE session_id=%s", (sid,))
+    con.execute("INSERT INTO archived_decisions SELECT * FROM decisions WHERE session_id=%s", (sid,))
+    con.execute("UPDATE sessions SET archived=1 WHERE id=%s", (sid,))
+    con.execute("UPDATE participants SET completed=1 WHERE session_id=%s", (sid,))
     con.commit()
     return redirect(url_for("admin"))
 
@@ -1110,15 +1110,15 @@ def admin_delete_session():
         return redirect(url_for("admin_login"))
     sid = request.form.get("session_id")
     con = db()
-    exists = con.execute("SELECT 1 FROM sessions WHERE id=?", (sid,)).fetchone()
+    exists = con.execute("SELECT 1 FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not exists:
         return redirect(url_for("admin"))
 
-    con.execute("BEGIN IMMEDIATE")
-    con.execute("DELETE FROM decisions WHERE session_id=?", (sid,))
-    con.execute("DELETE FROM round_phases WHERE session_id=?", (sid,))
-    con.execute("DELETE FROM participants WHERE session_id=?", (sid,))
-    con.execute("DELETE FROM sessions WHERE id=?", (sid,))
+    con.execute("START TRANSACTION")
+    con.execute("DELETE FROM decisions WHERE session_id=%s", (sid,))
+    con.execute("DELETE FROM round_phases WHERE session_id=%s", (sid,))
+    con.execute("DELETE FROM participants WHERE session_id=%s", (sid,))
+    con.execute("DELETE FROM sessions WHERE id=%s", (sid,))
     con.commit()
     return redirect(url_for("admin"))
 
@@ -1162,7 +1162,7 @@ def admin_export_session_xlsx():
         return redirect(url_for("admin_login"))
     sid = request.args.get("session_id")
     con = db()
-    s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+    s = con.execute("SELECT * FROM sessions WHERE id=%s", (sid,)).fetchone()
     if not s:
         return ("Not found", 404)
 
@@ -1181,7 +1181,7 @@ def admin_export_session_xlsx():
     ws1.append(["player_no","code","ptype","joined","current_round","balance","completed","ready_for_next","created_at"])
     for p in con.execute(
         "SELECT join_number, code, ptype, joined, current_round, balance, completed, ready_for_next, created_at "
-        "FROM participants WHERE session_id=? ORDER BY join_number, code",
+        "FROM participants WHERE session_id=%s ORDER BY join_number, code",
         (sid,)
     ):
         ws1.append([p["join_number"], p["code"], p["ptype"], p["joined"],
@@ -1196,7 +1196,7 @@ def admin_export_session_xlsx():
                d.a_cost, d.b_cost, d.total_cost, d.payout, d.created_at, d.reveal,
                d.others_A, d.b_cost_round, d.base_payout
         FROM decisions d JOIN participants p ON p.id=d.participant_id
-        WHERE d.session_id=? ORDER BY d.round_number, p.join_number, p.code
+        WHERE d.session_id=%s ORDER BY d.round_number, p.join_number, p.code
     """, (sid,)):
         ws2.append([d["round_number"], d["join_number"], d["code"], d["ptype"], d["choice"],
                     d["a_cost"], d["b_cost"], d["total_cost"], d["payout"], d["created_at"], d["reveal"],
