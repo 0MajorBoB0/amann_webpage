@@ -7,7 +7,12 @@
 {% block scripts %}
 <script>
 setInterval(async ()=>{
-  const r = await fetch("/lobby_status?session_id={{ session['id'] }}"); const d = await r.json();
+  const r = await fetch("/lobby_status?session_id={{ session['id'] }}&participant_id={{ participant['id'] }}");
+  const d = await r.json();
+  if(d.reset) {
+    window.location.href = "/join";
+    return;
+  }
   document.getElementById('count').textContent = d.joined + "/" + d.group_size;
   if(d.ready) window.location.href = "/round";
 }, 2000);

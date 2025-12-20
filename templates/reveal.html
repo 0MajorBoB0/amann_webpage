@@ -22,6 +22,7 @@
 {% block scripts %}
 <script>
 const sid = "{{ session['id'] }}";
+const pid = "{{ participant['id'] }}";
 const r   = Number("{{ round_number }}");
 const tEl = document.getElementById('timer');
 const tbody = document.getElementById('tbody');
@@ -29,9 +30,13 @@ const tbody = document.getElementById('tbody');
 function fmt(x){ return Number(x||0).toFixed(0); }
 
 async function load(){
-  const res = await fetch(`/round_status?session_id=${sid}&round=${r}`);
+  const res = await fetch(`/round_status?session_id=${sid}&round=${r}&participant_id=${pid}`);
   if(!res.ok) return;
   const d = await res.json();
+  if (d.reset) {
+    window.location.href = "/join";
+    return;
+  }
   tbody.innerHTML = '';
   (d.players||[]).forEach(p=>{
     const tr = document.createElement('tr');

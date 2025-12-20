@@ -466,6 +466,7 @@ def lobby():
 @app.get("/lobby_status")
 def lobby_status():
     sid = request.args.get("session_id")
+    pid = request.args.get("participant_id")
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
     if not s:
@@ -474,7 +475,15 @@ def lobby_status():
         "SELECT COUNT(*) c FROM participants WHERE session_id=? AND joined=1",
         (sid,)
     ).fetchone()["c"]
-    return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"]})
+
+    # Check if this participant was reset (kicked from session)
+    reset = False
+    if pid:
+        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        if p and not p["joined"]:
+            reset = True
+
+    return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"], "reset": reset})
 
 # ---------- Runde ----------
 @app.route("/round")
@@ -501,7 +510,8 @@ def round_view():
         b_list=b_list,
         others_max=others_max,
         base_payout=int(s["starting_balance"] or 500),
-        balance_current=int(s["starting_balance"] or 500)
+        balance_current=int(s["starting_balance"] or 500),
+        participant=p
     )
 
 @app.post("/choose")
@@ -542,16 +552,26 @@ def wait_view():
         "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
         (s["id"], r)
     ).fetchone()["c"]
-    return render_template("wait.html", session=s, round_number=r, decided=decided)
+    return render_template("wait.html", session=s, round_number=r, decided=decided, participant=p)
 
 @app.get("/round_status")
 def round_status():
     sid = request.args.get("session_id")
     r = int(request.args.get("round"))
+    pid = request.args.get("participant_id")
     con = db()
     s = con.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
     if not s:
         return jsonify({"err": "unknown_session"}), 404
+
+    # Check if participant was reset
+    reset = False
+    if pid:
+        p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
+        if p and not p["joined"]:
+            reset = True
+    if reset:
+        return jsonify({"reset": True})
 
     decided = con.execute(
         "SELECT COUNT(*) c FROM decisions WHERE session_id=? AND round_number=?",
@@ -611,7 +631,7 @@ def reveal():
     s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
     r = p["current_round"] - 1
     if r < 1: return redirect(url_for("round_view"))
-    return render_template("reveal.html", session=s, round_number=r)
+    return render_template("reveal.html", session=s, round_number=r, participant=p)
 
 @app.get("/reveal_status")
 def reveal_status():
