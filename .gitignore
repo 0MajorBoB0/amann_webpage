@@ -12,4 +12,4 @@ cloudflared.log
 
 cloudflared.*.log
 
-backups/
+backups/*.backup
