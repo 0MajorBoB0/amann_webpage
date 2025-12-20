@@ -92,12 +92,7 @@ def _connect_mysql():
     return conn
 
 def db():
-    """
-    MySQL connection helper.
 
-    - Outside a Flask request context (e.g., init_db): returns a standalone connection.
-    - Inside a request: reuses one connection stored on flask.g and closes it on teardown.
-    """
     if not has_app_context():
         return _connect_mysql()
 
@@ -116,7 +111,6 @@ def close_db(exception=None):
 
 
 def ensure_column(con, table, column, definition):
-    """Add column to table if it doesn't exist (MySQL version)."""
     cursor = con.cursor()
     cursor.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (column,))
     if not cursor.fetchone():
@@ -125,7 +119,6 @@ def ensure_column(con, table, column, definition):
     cursor.close()
 
 def ensure_archive_schema(con, base_table):
-    """Ensure archived table has same schema as base table (MySQL version)."""
     arch_table = f"archived_{base_table}"
     cursor = con.cursor()
 
