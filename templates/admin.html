@@ -144,4 +144,41 @@
     <tr><td colspan="4" class="center" style="opacity:.7">– keine archivierten Sessions –</td></tr>
   {% endfor %}
 </table>
+
+<script>
+(function() {
+  // Store initial state
+  const initialState = {
+    active: {{ sessions_active | map(attribute='id') | list | tojson }},
+    done: {{ sessions_done | map(attribute='id') | list | tojson }},
+    archived: {{ sessions_arch | map(attribute='id') | list | tojson }}
+  };
+
+  function arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
+  }
+
+  function checkForChanges() {
+    fetch('/admin/sessions_overview')
+      .then(r => r.json())
+      .then(data => {
+        // Check if any category changed
+        if (!arraysEqual(data.active, initialState.active) ||
+            !arraysEqual(data.done, initialState.done) ||
+            !arraysEqual(data.archived, initialState.archived)) {
+          // Something changed, reload the page
+          location.reload();
+        }
+      })
+      .catch(() => {});
+  }
+
+  // Poll every 3 seconds
+  setInterval(checkForChanges, 3000);
+})();
+</script>
 {% endblock %}

@@ -983,6 +983,32 @@ def admin_session_status():
         "session": {"id": srow["id"], "current_round": r_disp}
     })
 
+@app.get("/admin/sessions_overview")
+def admin_sessions_overview():
+    """Returns overview of all sessions for auto-refresh detection."""
+    if not require_admin():
+        return ("Forbidden", 403)
+    con = db()
+    rows = con.execute("SELECT id, archived FROM sessions ORDER BY created_at DESC").fetchall()
+
+    active_ids = []
+    done_ids = []
+    archived_ids = []
+
+    for s in rows:
+        if s["archived"]:
+            archived_ids.append(s["id"])
+        elif _session_done(con, s["id"]):
+            done_ids.append(s["id"])
+        else:
+            active_ids.append(s["id"])
+
+    return jsonify({
+        "active": active_ids,
+        "done": done_ids,
+        "archived": archived_ids
+    })
+
 @app.post("/admin/reset_session")
 def admin_reset_session():
     if not require_admin():
