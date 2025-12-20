@@ -22,10 +22,7 @@
       <label>Basisbetrag M (pro Runde)</label>
       <input type="number" name="base_payout" value="500" step="1" required>
     </div>
-    <div>
-      <label>Watch-Zeit (Sek.)</label>
-      <input type="number" name="watch_time" value="5" step="1" min="1" required>
-    </div>
+    <div></div>
     <div></div>
   </div>
   <button type="submit">Session erstellen</button>
@@ -48,8 +45,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
-      </td>
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}      </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
 
@@ -92,8 +88,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
-      </td>
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}      </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
         <form method="post" action="/admin/archive_session" style="display:inline"
@@ -129,8 +124,7 @@
         {% endfor %}
       </td>
       <td class="mono">
-        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}, watch={{ s['watch_time'] }}s
-      </td>
+        N={{ s['group_size'] }}, R={{ s['rounds'] }}, M={{ '%.0f'|format(s['starting_balance']) }}      </td>
       <td>
         <a href="/admin/session/{{ s['id'] }}"><button class="secondary">Details</button></a>
         <form method="post" action="/admin/delete_session" style="display:inline"

@@ -490,13 +490,12 @@ def lobby_status():
     ).fetchone()["c"]
 
     # Check if this participant was reset (kicked from session)
-    reset = False
     if pid:
         p = con.execute("SELECT joined FROM participants WHERE id=?", (pid,)).fetchone()
-        if p and not p["joined"]:
-            reset = True
+        if p and p["joined"] == 0:
+            return jsonify({"reset": True})
 
-    return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"], "reset": reset})
+    return jsonify({"joined": joined, "group_size": s["group_size"], "ready": joined >= s["group_size"], "reset": False})
 
 # ---------- Round ----------
 @app.route("/round")
