@@ -29,6 +29,8 @@ app = Flask(
 
 app.secret_key = must_get_env("SECRET_KEY")
 
+app.config["SESSION_PERMANENT"] = False
+
 DEBUG_MODE = os.environ.get("FLASK_DEBUG", "0") == "1"
 app.config["TEMPLATES_AUTO_RELOAD"] = DEBUG_MODE
 
@@ -440,6 +442,7 @@ def join():
                 con.execute("UPDATE participants SET ptype=? WHERE id=?", (ptype, p["id"]))
             con.execute("UPDATE participants SET joined=1 WHERE id=?", (p["id"],))
         flask_session["participant_id"] = p["id"]
+        flask_session.permanent = False
         con.commit()
         p2 = con.execute("SELECT * FROM participants WHERE id=?", (p["id"],)).fetchone()
         s = con.execute("SELECT * FROM sessions WHERE id=?", (p["session_id"],)).fetchone()
@@ -1025,7 +1028,6 @@ def admin_delete_session():
 
 # --------- XLSX Export ----------
 def _style_table(ws, header_row=1, wrap_cols=None, int_cols=None):
-    """Apply tidy styling to a worksheet: header style, freeze, filter, number formats, wrapping, autosize."""
     hdr_fill = PatternFill("solid", fgColor="1F2A44")
     hdr_font = Font(bold=True, color="FFFFFF")
     for cell in ws[header_row]:
